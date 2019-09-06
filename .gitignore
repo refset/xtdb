@@ -24,6 +24,7 @@ target
 /example/standalone_webservice/.nrepl-port
 /example/standalone_webservice/backup/**/*
 /example/3df/data/**/*
+/example/3df/.nrepl-port
 
 /bench/.nrepl-port
 bench/data/**/*
