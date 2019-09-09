@@ -1,5 +1,3 @@
-= REST API
-
 [#rest]
 == Introduction
 
@@ -28,9 +26,9 @@ other RDF features are available.
 == Using the HTTP API
 
 The HTTP interface is provided as a Ring middleware in a Clojure namespace,
-located at `crux/src/crux/http_server.clj`. There is an example of using this
+located at `crux/crux-http-server/src/crux/http_server.clj`. There is an example of using this
 middleware in a full example HTTP server configuration:
-https://github.com/juxt/crux/tree/master/example/standalone_webservice
+https://github.com/juxt/crux/tree/master/docs/example/standalone_webservice
 
 Whilst CORS may be easily configured for use while prototyping a Single Page
 Application that uses Crux directly from a web browser, it is currently NOT
@@ -46,6 +44,7 @@ otherwise restrict the execution of queries.
 |uri|method|description
 |<<#home,`/`>>|GET|returns various details about the state of the database
 |<<#document, `/document/[content-hash]`>>|GET or POST|returns the document for a given hash
+|<<#documents `/documents`>>|POST|returns a map of document ids and respective documents for a given set of content hashes submitted in the request body
 |<<#entity, `/entity`>>|POST|Returns an entity for a given ID and optional valid-time/transaction-time co-ordinates
 |<<#entity-tx, `/entity-tx`>>|POST|Returns the `:put` or `:cas` transaction that most recently set a key
 |<<#history, `/history/[:key]`>>|GET OR POST|Returns the transaction history of a key
@@ -97,7 +96,25 @@ curl -X GET $nodeURL/document/7af0444315845ab3efdfbdfa516e68952c1486f2
 ----
 {:crux.db/id :foobar, :name "FooBar"}
 ----
-NOTE: Hashes for older versions of a document can be obtained with `/history`, under the `:crux.db/content-hash` keys.
+NOTE: Hashes for older versions of a document can be obtained with `/history-range` or `/history`, under the `:crux.db/content-hash` keys.
+
+[#documents]
+=== GET/POST `/documents`
+
+Returns a map from the documents ids to the documents for ids set.
+Possible to get map keys as #crux/id literals if preserve-crux-ids param
+is set to "true"
+
+[source,bash]
+----
+curl -X POST $nodeURL/documents \
+     -H "Content-Type: application/edn" \
+     -d '#{"7af0444315845ab3efdfbdfa516e68952c1486f2"}'
+----
+[source,clj]
+----
+{"7af0444315845ab3efdfbdfa516e68952c1486f2" {:crux.db/id :foobar, :name "FooBar"}}
+----
 
 [#entity]
 === POST `/entity`
@@ -194,7 +211,7 @@ curl -X POST \
 #{[:boris][:ivan]}
 ----
 
-Note that you are able to add `:full-results? true` to the query map to easily retrieve the source documents relating to the entites in the result set. For instance to retrieve _all_ documents in a single query:
+Note that you are able to add `:full-results? true` to the query map to easily retrieve the source documents relating to the entities in the result set. For instance to retrieve _all_ documents in a single query:
 
 [source,clj]
 ----
@@ -212,7 +229,7 @@ Same as `/query` but the results are streamed.
 [#sync]
 === GET `/sync`
 
-Wait until the Kafka consumer's lag is back to 0 (i.e. when it no longer has pending transactions to write). Timeout is 10 seconds by default, but can be specified as a parameter in miliseconds. Returns the transaction time of the most recent transaction.
+Wait until the Kafka consumer's lag is back to 0 (i.e. when it no longer has pending transactions to write). Timeout is 10 seconds by default, but can be specified as a parameter in milliseconds. Returns the transaction time of the most recent transaction.
 
 [source,bash]
 ----
@@ -237,8 +254,8 @@ curl -X GET $nodeURL/tx-log
 [source,clj]
 ----
 ({:crux.tx/tx-time #inst "2019-01-07T15:11:13.411-00:00",
-  :crux.tx/tx-ops [[
-    :crux.tx/put "a15f8b81a160b4eebe5c84e9e3b65c87b9b2f18e" "c28f6d258397651106b7cb24bb0d3be234dc8bd1"
+  :crux.api/tx-ops [[
+    :crux.tx/put "c28f6d258397651106b7cb24bb0d3be234dc8bd1"
     #inst "2019-01-07T14:57:08.462-00:00"]],
   :crux.tx/tx-id 0}
 
@@ -255,8 +272,8 @@ Takes a vector of transactions (any combination of `:put`, `:delete`, `:cas` and
 ----
 curl -X POST \
      -H "Content-Type: application/edn" \
-     -d '[[:crux.tx/put :ivan {:crux.db/id :ivan, :name "Ivan" :last-name "Petrov"}],
-          [:crux.tx/put :boris {:crux.db/id :boris, :name "Boris" :last-name "Petrov"}],
+     -d '[[:crux.tx/put {:crux.db/id :ivan, :name "Ivan" :last-name "Petrov"}],
+          [:crux.tx/put {:crux.db/id :boris, :name "Boris" :last-name "Petrov"}],
           [:crux.tx/delete :maria  #inst "2012-05-07T14:57:08.462-00:00"]]' \
      $nodeURL/tx-log
 ----

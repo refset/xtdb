@@ -8,7 +8,7 @@ jobs:
     docker:
       # CircleCI maintains a library of pre-built images
       # documented at https://circleci.com/docs/2.0/circleci-images/
-      - image: circleci/clojure:lein-2.8.3
+      - image: circleci/clojure:lein-2.9.1
 
 
     working_directory: ~/crux
@@ -32,6 +32,7 @@ jobs:
           # fallback to using the latest cache if no exact match is found
           - v1-dependencies-
 
+      - run: lein sub install
       - run: lein deps
 
       - save_cache:
@@ -39,6 +40,6 @@ jobs:
             - ~/.m2
           key: v1-dependencies-{{ checksum "project.clj" }}
 
-      - run: lein do version, check, test
+      - run: lein do version, sub test, check
 
-      - run: ./bin/deploy_clojars.sh
+      - run: ./.circleci/bin/deploy_clojars.sh

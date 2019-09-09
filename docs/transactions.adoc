@@ -1,6 +1,6 @@
 = Transactions
 
-== Index
+== Overview
 
 There are four transaction (write) operations:
 
@@ -28,7 +28,7 @@ sequence of transaction operations:
 
 [source,clj]
 ----
-[[:crux.tx/put :dbpedia.resource/Pablo-Picasso
+[[:crux.tx/put
  {:crux.db/id :dbpedia.resource/Pablo-Picasso
   :name "Pablo"
   :last-name "Picasso"}
@@ -46,6 +46,21 @@ the event log. The document itself is submitted to the `doc-topic`,
 using its content hash as key. In Kafka, the `doc-topic` is compacted,
 which enables later deletion of documents.
 
+== Valid IDs
+
+The following types of `:crux.db/id` are allowed:
+
+* Keyword (e.g. `{:crux.db/id :my-id}` or `{:crux.db/id :dbpedia.resource/Pablo-Picasso}`)
+* UUID (e.g. `{:crux.db/id #uuid "6f0232d0-f3f9-4020-a75f-17b067f41203"}` or `{:crux.db/id #crux/id "6f0232d0-f3f9-4020-a75f-17b067f41203"}`)
+* URI (e.g. `{:crux.db/id #crux/id "mailto:crux@juxt.pro"}`)
+* URL (e.g. `{:crux.db/id #crux/id "https://github.com/juxt/crux"}`), including `http`, `https`, `ftp` and `file` protocols
+
+The `#crux/id` reader literal will take any string and attempt to coerce it
+into a valid ID. Use of `#crux/id` with a valid ID type will also work 
+(e.g. `{:crux.db/id #crux/id :my-id}`).
+
+URIs and URLs are interpreted using Java classes (java.net.URI and java.net.URL respectively) and therefore you can also use these directly.
+
 == Put
 
 Put's a document into Crux. If a document already exists with the
@@ -55,15 +70,13 @@ the supplied `valid time`.
 [source,clojure]
 ----
 [:crux.tx/put
- :dbpedia.resource/Pablo-Picasso <1>
- {:crux.db/id :dbpedia.resource/Pablo-Picasso :first-name :Pablo} <2>
- #inst "2018-05-18T09:20:27.966-00:00"] <3>
+ {:crux.db/id :dbpedia.resource/Pablo-Picasso :first-name :Pablo} <1>
+ #inst "2018-05-18T09:20:27.966-00:00"] <2>
 ----
 
-<1> The ID of the document to be used for the transaction log.
-<2> The document itself. Note that the ID must also be included as part of the
-document (this requirement to state the ID twice may change in future).
-<3> `valid time`
+<1> The document itself. Note that the ID must be included as part of the
+document.
+<2> `valid time`
 
 Note that `valid time` is optional and defaults to transaction time,
 which is taken from the Kafka log.
@@ -80,16 +93,14 @@ newer one, if the existing document is as expected.
 [source,clojure]
 ----
 [:crux.tx/cas
- :dbpedia.resource/Pablo-Picasso <1>
+ {..} <1>
  {..} <2>
- {..} <3>
-  #inst "2018-05-18T09:21:31.846-00:00"] <4>
+  #inst "2018-05-18T09:21:31.846-00:00"] <3>
 ----
 
-<1> The ID of the document being written
-<2> Expected Document
-<3> New document
-<4> `valid time`
+<1> Expected Document
+<2> New document
+<3> `valid time`
 
 == Delete
 
@@ -112,4 +123,16 @@ evicted.
 ----
 [:crux.tx/evict :dbpedia.resource/Pablo-Picasso
 #inst "2018-05-18T09:21:52.151-00:00"]
+----
+
+The evict transaction also supports additional parameters for straightforward
+eviction across time periods.
+
+[source,clojure]
+----
+[:crux.tx/evict :dbpedia.resource/Pablo-Picasso
+  #inst "2018-05-18T09:21:52.151-00:00" ; start-valid-time
+  #inst "2018-05-19T09:21:52.151-00:00" ; end-valid-time
+  true                                  ; keep-latest?
+  false]                                ; keep-earliest?
 ----

@@ -2,17 +2,9 @@
 * <<queries.adoc#,Queries>>
 * <<transactions.adoc#,Transactions>>
 * <<configuration.adoc#,Configuration>>
-* <<clojure_api.adoc#,Clojure API>>
-* <<api.adoc#,Javadocs>>
 * <<bitemp.adoc#,Bitemporality>>
-* <<advanced_queries.adoc#,Queries (advanced)>>
-* <<deployment.adoc#,Deployment>>
-* <<rest.adoc#,REST API>>
 * <<tutorials.adoc#,Tutorials>>
 * <<faq.adoc#,FAQ>>
-* <<support.adoc#,Support>>
-* <<roadmap.adoc#,Product Roadmap>>
 * <<about.adoc#,About>>
-* <<releases.adoc#,Releases>>
-* <<design.adoc#,Design>>
-* <<contributing.adoc#,Contributing>>
+* <<api.adoc#,API>>
+* <<advanced.adoc#,Advanced Usage>>
