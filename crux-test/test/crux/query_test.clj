@@ -2525,6 +2525,11 @@
                        :where '[(p x y)]
                        :rules rules}))))))
 
+(t/deftest test-query-map-ids-order-362
+  (f/transact! *api* [{:crux/db/id {:a 1 :b 1}}])
+  (t/is (= (api/entity (crux/db *api*) {:a 1 :b 1})
+           (api/entity (crux/db *api*) {:b 1 :a 1}))))
+
 (t/deftest test-query-against-empty-database-376
   (let [db (api/db *api*)
         _ (t/is (not (api/entity db :a)))
