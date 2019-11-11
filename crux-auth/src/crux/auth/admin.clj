@@ -6,10 +6,9 @@
   "Add a new user to the authentication model. Take a crux node, a user id and
   optionally extra attributes in a map which will be appened to the document.
   For example if you want to add a users github with their account or a
-  password hash."
+  password hash. Gives the user no privilages by default"
   [node user & extra-attribs]
-  (c/submit-tx node [[:crux.tx/put (merge {:crux.db/id (java.util.UUID/randomUUID)
-                                           :crux.auth/user user}
+  (c/submit-tx node [[:crux.tx/put (merge {:crux.db/id user}
                                           extra-attribs)]]))
 
 (defn delete-user
