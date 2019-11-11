@@ -21,10 +21,22 @@
                              ['z :crux.db/id '_]
                              ['z :val :yo]]})
 
-((fn [query] {:find (vec (reduce #(conj %1 (first %2)) #{} (:where query))) :where (:where query)})
+(defn- tag-values
+  [query]
+  {:find (vec (reduce #(conj %1 (first %2)) #{} (:where query)))
+   :where (:where query)})
+
+((fn [query] (assoc query :where (concat (:where query) 
+                                         (mapv (fn [el] ['authdoc :crux.auth/doc el]) (reduce #(conj %1 (first %2)) #{} (:where query))))))
+
  que)
+
+(a/get-auth-doc :person/tmt que)
+(take 10 (repeat `test#))
 
 
 (mapv first (:where que))
 
 (into #{} 3)
+
+(char 2)
