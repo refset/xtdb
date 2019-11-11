@@ -8,7 +8,7 @@
   For example if you want to add a users github with their account or a
   password hash. Gives the user no privilages by default"
   [node user & extra-attribs]
-  (c/submit-tx node [[:crux.tx/put (merge {:crux.db/id user}
+  (c/submit-tx node [[:crux.tx/put (merge {:crux.db/id (keyword "crux.auth.user" user)}
                                           extra-attribs)]]))
 
 (defn delete-user
@@ -32,4 +32,5 @@
     (c/submit-tx dev/node [[:crux.tx/put {:crux.db/id :this}]])
     (c/submit-tx dev/node [[:crux.tx/evict :this]])
     (c/q (c/db dev/node) {:find ['e] :where [['e :crux.db/id '_]] :full-results? true})
+    (keyword "auth.user" "tmt")
     )

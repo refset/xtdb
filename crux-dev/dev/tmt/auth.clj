@@ -8,3 +8,5 @@
 
 #_(c/submit-tx node [[:crux.tx/put {:crux.db/id :person/tmt}]])
 (aa/add-user dev/node :person/tmt)
+
+(c/q (c/db dev/node) {:find ['p] :where [['p :crux.db/id :person/tmt]]})
