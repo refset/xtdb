@@ -19,8 +19,19 @@
 ;;                  superuser has :rw. everyone else by default has nil.
 ;;                  someone who can see all data but not alter it will have :r.
 ;;                  :w allows someone to add new documents (but not change).
+;; NOTE it's not up to crux to validate someones credentials, just verify the
+;;      supplied identity is allowed to execute the required action
 
 (defn q
   "Wraps crux.api/q in an authentication layer"
   [cred db query]
-  (c/q db query))
+  (let [condition (:crux.auth/condition cred)
+        user (:crux.auth/user cred)]
+    (c/q db query)))
+
+(defn submit-tx
+  "Wraps crux.api/submit-tx in an authentication layer"
+  [cred node txs]
+  (let [condition (:crux.auth/condition cred)
+        user (:crux.auth/user cred)]
+    ))
