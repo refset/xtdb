@@ -14,7 +14,8 @@
                  [juxt/crux-http-server "derived-from-git"]
                  [juxt/crux-rdf "derived-from-git"]
                  [juxt/crux-decorators "derived-from-git"]
-                 [juxt/crux-test "derived-from-git"]]
+                 [juxt/crux-test "derived-from-git"]
+                 [juxt/crux-auth "derived-from-git"]]
   :profiles {:dev {:dependencies [;; General:
                                   [org.clojure/tools.namespace "0.2.11"]
                                   ;; Hakan:
@@ -36,6 +37,7 @@
                "../crux-http-server/test"
                "../crux-uberjar/test"
                "../crux-decorators/test"
+               "../crux-auth/test"
                "../crux-test/test"]
   :jvm-opts ["-Dlogback.configurationFile=logback-dev.xml"]
   :middleware [leiningen.project-version/middleware]

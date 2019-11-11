@@ -10,6 +10,7 @@
               "crux-kafka"
               "crux-uberjar"
               "crux-decorators"
+              "crux-auth"
               "crux-test"])
 
 (defproject juxt/crux "derived-from-git"
