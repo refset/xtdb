@@ -1,6 +1,7 @@
 (ns crux.auth (:require [crux.api :as c]))
 
 ;; Types of auth docs
+;; :crux.auth/doc <crux.db.id> TODO better naming scheme
 ;; auth doc -> contains id of document in reference, a list of users who can
 ;;             :crux.auth.read/users, a list of users who can
 ;;             :crux.auth.write/users. Also :crux.auth.condition, this contains
@@ -22,17 +23,31 @@
 ;; NOTE it's not up to crux to validate someones credentials, just verify the
 ;;      supplied identity is allowed to execute the required action
 
+;; this function may have an edge case where it gives back a crux.id that isn't
+;; actually returned in the original find, however this is really a fault of
+;; the query
+(defn- all-docs
+  [query]
+  {:find (vec (reduce #(conj %1 (first %2)) #{} (:where query)))
+   :where (:where query)})
+
+;;TODO Should this just filter or deny to show anything
 (defn q
   "Wraps crux.api/q in an authentication layer"
   [cred db query]
   (let [condition (:crux.auth/condition cred)
-        user (:crux.auth/user cred)]
-    (c/q db query)))
+        user (:crux.auth/user cred)
+        docs (c/q db (all-docs query))]
+    ; look for the auth doc
+    #_(map docs #(c/q db {}))
+    #_(c/q db query)
+    docs))
 
 (defn submit-tx
   "Wraps crux.api/submit-tx in an authentication layer"
   [cred node txs]
-  (let [condition (:crux.auth/condition cred) ;; extract extra conditions
-        user (:crux.auth/user cred) ;; extract user
-        tx-types (into #{} (map txs first))]  ;; determine transactions
+  (let [condition (:crux.auth/condition cred)
+        user (:crux.auth/user cred)
+        tx-types (into #{} (map txs first))]
+
     ))
