@@ -7,6 +7,10 @@
     [dev]))
 
 #_(c/submit-tx node [[:crux.tx/put {:crux.db/id :person/tmt}]])
-(aa/add-user dev/node :person/tmt)
+(aa/add-user dev/node "tmt")
 
-(c/q (c/db dev/node) {:find ['p] :where [['p :crux.db/id :person/tmt]]})
+#_(c/q (c/db dev/node) {:find ['p] :where [['p :crux.db/id :test2]] :full-results? true})
+(c/submit-tx dev/node [[:crux.tx/put {:crux.db/id :test2
+                                      :val :yo}]
+                       [:crux.tx/put {:nothing :test1}]])
+

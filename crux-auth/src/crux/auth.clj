@@ -32,6 +32,7 @@
 (defn submit-tx
   "Wraps crux.api/submit-tx in an authentication layer"
   [cred node txs]
-  (let [condition (:crux.auth/condition cred)
-        user (:crux.auth/user cred)]
+  (let [condition (:crux.auth/condition cred) ;; extract extra conditions
+        user (:crux.auth/user cred) ;; extract user
+        tx-types (into #{} (map txs first))]  ;; determine transactions
     ))
