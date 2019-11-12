@@ -26,8 +26,8 @@
   {:find (vec (reduce #(conj %1 (first %2)) #{} (:where query)))
    :where (:where query)})
 
-((fn [query] (assoc query :where (concat (:where query) 
-                                         (mapv (fn [el] ['authdoc :crux.auth/doc el]) (reduce #(conj %1 (first %2)) #{} (:where query))))))
+((fn [query] (assoc query :where (concat (:where query)
+                                         (mapv (fn [el] [(gensym) :crux.auth/doc el]) (reduce #(conj %1 (first %2)) #{} (:where query))))))
 
  que)
 

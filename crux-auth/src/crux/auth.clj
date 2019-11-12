@@ -23,15 +23,6 @@
 ;; NOTE it's not up to crux to validate someones credentials, just verify the
 ;;      supplied identity is allowed to execute the required action
 
-;; Is a 10^25 chance there is a collision per inspected document. This won't
-;; throw an error, instead no results will be returned
-(defn rand-var
-  []
-  (.toLowerCase
-    (apply str
-           (take 10
-                 (repeatedly #(char (+ (rand 26) 65)))))))
-
 ;; this function may have an edge case where it gives back a crux.id that isn't
 ;; actually returned in the original find, however this is really a fault of
 ;; the query.
@@ -41,9 +32,9 @@
          :where
          (vec (concat (:where query)
                       (apply concat
-                             (mapv (fn [el] (let [placeholer (symbol (rand-var))]
-                                              [[placeholer :crux.auth/doc el]
-                                             [placeholer :crux.auth/read user]]))
+                             (mapv (fn [el] (let [el-auth (gensym (str el))]
+                                              [[el-auth :crux.auth/doc el]
+                                               [el-auth :crux.auth/read user]]))
                                    (reduce #(conj %1 (first %2)) #{} (:where query))))))))
 
 (defn q
@@ -51,12 +42,9 @@
   Filters out all elements that come from unavailable documents."
   [cred db query]
   (let [condition (:crux.auth/condition cred)
-        user (:crux.auth/user cred)
-        docs (c/q db (get-auth-doc user query))]
-    ; look for the auth doc
-    #_(map docs #(c/q db {}))
-    #_(c/q db query)
-    docs))
+        user (:crux.auth/user cred)]
+    ;; if user ∌ :r
+    (c/q db (get-auth-doc user query))))
 
 (defn submit-tx
   "Wraps crux.api/submit-tx in an authentication layer"
@@ -66,3 +54,4 @@
         tx-types (into #{} (map txs first))]
 
     ))
+
