@@ -27,6 +27,11 @@
 ;; NOTE it's not up to crux to validate someones credentials, just verify the
 ;;      supplied identity is allowed to execute the required action
 
+;; limitations -> unable to see who changed data, just makes sure that it was
+;;                someone with relevant permissions.
+;;             -> unable to stop someone directly quering a node (this module
+;;                doesn't redef functions
+
 ;; this function may have an edge case where it gives back a crux.id that isn't
 ;; actually returned in the original find, however this is really a fault of
 ;; the query.

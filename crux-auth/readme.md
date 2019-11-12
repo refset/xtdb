@@ -1,6 +1,7 @@
-= crux-auth
+# crux-auth
 
 This project contains a layer which wraps a crux node in an authentication
 adding permissions in front of the crux api.
 
-https://files.slack.com/files-pri/T02AJV0T3-FQBE484MU/img_20191107_110657.jpg
+
+![Structure example](resources/crux-auth.png)
