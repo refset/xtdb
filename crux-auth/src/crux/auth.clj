@@ -1,7 +1,7 @@
 (ns crux.auth (:require [crux.api :as c]))
 
 ;; Types of auth docs
-;; :crux.auth/doc <crux.db.id> TODO better naming scheme
+;; :crux.auth/doc <crux.db/id> TODO better naming scheme
 ;; auth doc -> contains id of document in reference, a list of users who can
 ;;             :crux.auth.read/users, a list of users who can
 ;;             :crux.auth.write/users. Also :crux.auth.condition, this contains
@@ -44,9 +44,9 @@
          (vec (concat (:where query)
                       (apply concat
                              (mapv (fn [el] (let [el-auth (gensym (str el))]
-                                              [[el-auth :crux.auth/doc el]
-                                               [el-auth :crux.auth/read user]
-                                               [el-auth :crux.auth/condition condition]]))
+                                              [[el-auth ::doc el]
+                                               [el-auth ::read user]
+                                               [el-auth ::condition condition]]))
                                    (reduce #(conj %1 (first %2)) #{} (:where query))))))))
 
 (defn q
