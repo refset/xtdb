@@ -36,18 +36,19 @@
 ;; actually returned in the original find, however this is really a fault of
 ;; the query.
 ;; Maybe move to utils.
+;; TODO if a condition is supplied wich isn't necceary the result will be filtered
 (defn get-auth-doc
   "Joins the authentication doc into the query. Requires that for any doc "
-  [user query condition]
-  (assoc query
+  [user query & condition]
+  (let user-cond (if-let [c (first condition)] [c user] user)
+    (assoc query
          :where
          (vec (concat (:where query)
                       (apply concat
                              (mapv (fn [el] (let [el-auth (gensym (str el))]
                                               [[el-auth ::doc el]
-                                               [el-auth ::read user]
-                                               [el-auth ::condition condition]]))
-                                   (reduce #(conj %1 (first %2)) #{} (:where query))))))))
+                                               [el-auth ::read user-cond]]))
+                                   (reduce #(conj %1 (first %2)) #{} (:where query)))))))))
 
 (defn q
   "Wraps crux.api/q in an authentication layer.
@@ -69,6 +70,9 @@
 ;;            -> only allow crux.db/id within certain namespaces
 ;;            -> only allow certain elements
 ;;            -> give inital permissions
+;; TODO things submit-tx should do
+;;            -> put-tx -> create auth-doc
+;;                      -> create meta-auth-doc
 (defn submit-tx
   "Wraps crux.api/submit-tx in an authentication layer"
   [cred node txs]
