@@ -48,10 +48,13 @@
                                (mapv (fn [el] (let [el-auth (gensym (str el))]
                                                 [[el-auth ::doc el]
                                                  [el-auth ::read uc-sym]]))
-                                     (reduce #(conj %1 (first %2)) #{} (:where query))))))
+                                     (reduce
+                                       #(conj %1 (first %2))
+                                       #{}
+                                       (:where query))))))
            :args
            (vec (concat (:args query)
-                        ;; TODO definitely a better way of doing this
+                        ;; TODO definitely a better way of writing this
                         (concat [[uc-sym user]]
                                 (when (first condition)
                                   [[condition user]])))))))
@@ -63,8 +66,9 @@
   (assert (:crux.auth/user cred))
   (cond
     ;; if user ∋ :r don't filter query
-    (first (c/q db {:find ['user] :where [['user :crux.db/id (:crux.auth/user cred)]
-                                          ['user :crux.auth.user/permissions :r]]}))
+    (first (c/q db {:find ['user]
+                    :where [['user :crux.db/id (:crux.auth/user cred)]
+                            ['user :crux.auth.user/permissions :r]]}))
     (c/q db query)
     ;; if user ∌ :r filter query
     :else
