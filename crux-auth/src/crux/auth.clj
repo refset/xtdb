@@ -36,19 +36,25 @@
 ;; actually returned in the original find, however this is really a fault of
 ;; the query.
 ;; Maybe move to utils.
-;; TODO if a condition is supplied wich isn't necceary the result will be filtered
+;user-cond (if-let [c (first condition)] [c user] user)
 (defn get-auth-doc
   "Joins the authentication doc into the query. Requires that for any doc "
   [user query & condition]
-  (let user-cond (if-let [c (first condition)] [c user] user)
+  (let [uc-sym (gensym "user-cond")]
     (assoc query
-         :where
-         (vec (concat (:where query)
-                      (apply concat
-                             (mapv (fn [el] (let [el-auth (gensym (str el))]
-                                              [[el-auth ::doc el]
-                                               [el-auth ::read user-cond]]))
-                                   (reduce #(conj %1 (first %2)) #{} (:where query)))))))))
+           :where
+           (vec (concat (:where query)
+                        (apply concat
+                               (mapv (fn [el] (let [el-auth (gensym (str el))]
+                                                [[el-auth ::doc el]
+                                                 [el-auth ::read uc-sym]]))
+                                     (reduce #(conj %1 (first %2)) #{} (:where query))))))
+           :args
+           (vec (concat (:args query)
+                        ;; TODO definitely a better way of doing this
+                        (concat [[uc-sym user]]
+                                (when (first condition)
+                                  [[condition user]])))))))
 
 (defn q
   "Wraps crux.api/q in an authentication layer.
