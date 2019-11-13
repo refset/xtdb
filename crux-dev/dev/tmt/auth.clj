@@ -25,12 +25,12 @@
 
 (aa/add-user node "tmt")
 
-#_(get-auth-doc :crux.auth.user/tmt
-                {:find ['k 'n]
-                 :where [['p :person/ident :person/tmt]
-                         ['p :person/nok 'k]
-                         ['k :nok/name 'n]]}
-                :ice)
+#_(aa/get-auth-doc :crux.auth.user/tmt
+                   {:find ['k 'n]
+                    :where [['p :person/ident :person/tmt]
+                            ['p :person/nok 'k]
+                            ['k :nok/name 'n]]}
+                   :ice)
 
 
 
