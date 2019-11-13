@@ -15,11 +15,23 @@
                    :val [:one :two]}]])
 
 
-(c/q (c/db node) {:find ['e 'v] :where [['e :crux.db/id :this]
-                                     ['e :val 'v]] :full-results? true})
+(c/q (c/db node) {:find ['e 'v]
+                  :where [['e :crux.db/id :this]
+                          ['e :val 'v]]
+                  :full-results? true})
+
 
 (aa/add-user node "root" {:crux.auth/permissions [:r :w]})
 
 (aa/add-user node "tmt")
+
+#_(get-auth-doc :crux.auth.user/tmt
+                {:find ['k 'n]
+                 :where [['p :person/ident :person/tmt]
+                         ['p :person/nok 'k]
+                         ['k :nok/name 'n]]}
+                :ice)
+
+
 
 (.close node)

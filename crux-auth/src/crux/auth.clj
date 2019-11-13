@@ -55,9 +55,9 @@
            :args
            (vec (concat (:args query)
                         ;; TODO definitely a better way of writing this
-                        (concat [[uc-sym user]]
-                                (when (first condition)
-                                  [[condition user]])))))))
+                        (concat [{uc-sym user}]
+                               (when (first condition)
+                                 [{uc-sym [(first condition) user]}])))))))
 
 (defn q
   "Wraps crux.api/q in an authentication layer.
