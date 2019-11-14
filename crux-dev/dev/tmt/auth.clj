@@ -2,8 +2,7 @@
   (:require
     [crux.api :as c]
     [crux.auth :as a]
-    [crux.auth.admin :as aa]
-    [crux.auth.setup :as as]))
+    [crux.auth.admin :as aa]))
 
 (def node (c/start-node {:crux.node/topology :crux.standalone/topology
                          :crux.node/kv-store "crux.kv.memdb/kv"
@@ -59,9 +58,10 @@
              [[:crux.tx/put :crux.auth.user/tmt tmtnok]])
 
 ;; Currently everyone can read
-(c/q (c/db node) {:find ['doc-auth 'p]
-                  :where [['doc-auth :crux.auth/doc :person/tmt]
-                          ['doc-auth :crux.auth.doc/read 'p]]})
+(a/q {:crux.auth/user :crux.auth.user/tmt}
+     (c/db node) {:find ['me]
+                  :where [['me :crux.db/id :person/tmt]]
+                  :full-results? true})
 
 
 (.close node)

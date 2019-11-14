@@ -23,10 +23,10 @@
            :args
            (vec (concat (:args query)
                         ;; TODO definitely a better way of writing this
-                        (concat [{uc-sym user}]
+                        (concat [{uc-sym user}
+                                 {uc-sym :all}]
                                 (when (first condition)
-                                  [{uc-sym [(first condition) user]}
-                                   {uc-sym :all}])))))))
+                                  [{uc-sym [(first condition) user]}])))))))
 
 
 (defn q
@@ -43,8 +43,10 @@
     ;; if user ∌ :r filter query
     :else
     (let [condition (:crux.auth/condition cred)
-          user (:crux.auth/user cred)]
-      (c/q db (alter-query user query condition)))))
+          user (:crux.auth/user cred)
+          alteredq (alter-query user query condition)
+          _ (tap> alteredq)]
+      (c/q db alteredq))))
 
 (defn alter-put
   [creds db tx]
