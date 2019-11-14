@@ -56,20 +56,20 @@
         ;endvaltime (get tx 3)
         target-doc (c/q db {:find ['d]
                             :where [['d :crux.db/id (:crux.db/id doc)]]})]
-    (if-not (first target-doc)
+    (if (first target-doc)
       ;; does the user have write permission for the doc?
-      (if-not (first (c/q db {:find ['p]
-                              :where [['d :crux.db/id (:crux.db/id doc)]
-                                      ['p :crux.auth/doc 'd]
-                                      ['p :crux.auth/write user]]}))
+      (if (first (c/q db {:find ['p]
+                          :where [['d :crux.db/id (:crux.db/id doc)]
+                                  ['p :crux.auth/doc 'd]
+                                  ['p :crux.auth/write user]]}))
         ;; write it
         [[:crux.tx/put doc]]
         ;; else TODO throw exception?
         [])
       ;; else user ∌ :w TODO specify
-      (if-not (first (c/q db {:find ['p]
-                              :where [['p :crux.db/id user]
-                                      ['p :crux.auth.user/permissions :w]]}))
+      (if (first (c/q db {:find ['p]
+                          :where [['p :crux.db/id user]
+                                  ['p :crux.auth.user/permissions :w]]}))
         ;; write it & add auth doc
         (let [auth-doc-id (java.util.UUID/randomUUID)]
           [[:crux.tx/put doc]
@@ -124,7 +124,7 @@
             :crux.auth/type)
     (let
       ;; get auth doc
-      [auth-doc (first (c/q (c/db node) {:find ['ad]
+      [auth-doc (ffirst (c/q (c/db node) {:find ['ad]
                                          :where [['ad :crux.auth/doc doc-id]]
                                          :full-results? true}))
        ;; create set function
@@ -141,7 +141,8 @@
         ;; does normal user have privileges?
         (if (first (c/q (c/db node) {:find ['mad]
                                      :where
-                                     [['mad :crux.auth/meta doc-id]
+                                     [['auth-doc :crux.auth/doc 'doc-id]
+                                      ['mad :crux.auth/meta 'auth-doc]
                                       ['mad :crux.auth/write (:crux.auth/user cred)]]}))
           (set-priv)
           (throw (Exception. "Unauthorised credentials")))))
