@@ -72,13 +72,13 @@
         ;; write it & add auth doc
         (let [auth-doc-id (java.util.UUID/randomUUID)]
           [[:crux.tx/put doc]
-         [:crux.tx/put {:crux.db/id auth-doc-id
-                        :crux.auth/doc (:crux.db/id doc)
-                        :crux.auth.doc/read [:all]
-                        :crux.auth.doc/write (vec (distinct [owner user]))}]
-         [:crux.tx/put {:crux.db/id (java.util.UUID/randomUUID)
-                        :crux.auth/meta auth-doc-id
-                        :crux.auth.meta/write (vec (distinct [owner user]))}]])
+           [:crux.tx/put {:crux.db/id auth-doc-id
+                          :crux.auth/doc (:crux.db/id doc)
+                          :crux.auth.doc/read [:all]
+                          :crux.auth.doc/write (vec (distinct [owner user]))}]
+           [:crux.tx/put {:crux.db/id (java.util.UUID/randomUUID)
+                          :crux.auth/meta auth-doc-id
+                          :crux.auth.meta/write (vec (distinct [owner user]))}]])
         ;; else TODO throw exception?
         []))))
 
@@ -97,10 +97,13 @@
   "Wraps crux.api/submit-tx in an authentication layer.
   If put atempts to put existing document if an optional auth-doc is specified"
   [cred node txs]
-  (apply concat (map
-                    (fn [tx]
-                      (case (first tx)
-                        :crux.tx/put (alter-put cred (c/db node) (rest tx))
-                        []))
-                    txs)))
+  (c/submit-tx
+    node
+    (vec (apply concat (map (fn [tx]
+                              (case (first tx)
+                                :crux.tx/put
+                                (alter-put cred (c/db node) (vec (rest tx)))
+                                []))
+                            txs)))))
+
 

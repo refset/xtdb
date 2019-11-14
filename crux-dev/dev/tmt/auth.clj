@@ -11,7 +11,9 @@
                          :crux.standalone/event-log-dir "data/eventlog-1"
                          :crux.standalone/event-log-kv-store "crux.kv.memdb/kv"}))
 
-(aa/add-admin node "root" {:crux.auth/permissions [:r :w]})
+(aa/add-admin node "root" {:crux.auth.user/permissions [:r :w]})
+
+(c/q (c/db node) {:find ['e] :where [['e :crux.db/id '_]] :full-results? true})
 
 (def tmtdoc {:crux.db/id :person/tmt
              :person/dob #inst "1996-06-21"
@@ -26,14 +28,14 @@
                :crux.auth.user/tmt
                tmtdoc]])
 
-(a/alter-put {:crux.auth.user/root} (c/db node) )
+(a/alter-put {:crux.auth/user :crux.auth.user/root}
+             (c/db node)
+             [:crux.auth.user/tmt tmtdoc])
 
-#_(aa/get-auth-doc :crux.auth.user/tmt
-                   {:find ['k 'n]
-                    :where [['p :person/ident :person/tmt]
-                            ['p :person/nok 'k]
-                            ['k :nok/name 'n]]}
-                   :ice)
+(a/submit-tx {:crux.auth/user :crux.auth.user/root}
+             node
+             [[:crux.tx/put :crux.auth.user/tmt tmtnok]
+              [:crux.tx/put :crux.auth.user/tmt tmtdoc]])
 
 (merge {:me "tom"
         :you "test"}
@@ -42,3 +44,7 @@
 (.close node)
 
 (concat [:test] nil nil)
+
+(case (first [:crux.tx/put])
+  :crux.tx/put "yes"
+  "no")
