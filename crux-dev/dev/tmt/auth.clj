@@ -80,6 +80,4 @@
       :where [['me-nok :crux.db/id :person.nok/tmt]]
       :full-results? true})
 
-(contains? nil :type)
-
 (.close node)
