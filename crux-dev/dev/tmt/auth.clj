@@ -59,9 +59,12 @@
 
 ;; Currently everyone can read
 (a/q {:crux.auth/user :crux.auth.user/tmt}
-     (c/db node) {:find ['me]
-                  :where [['me :crux.db/id :person/tmt]]
-                  :full-results? true})
+     (c/db node)
+     {:find ['me]
+      :where [['me :crux.db/id :person/tmt]]
+      :full-results? true})
 
+
+(contains? nil :type)
 
 (.close node)
