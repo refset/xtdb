@@ -59,7 +59,7 @@
       ;; does the user have write permission for the doc?
       (if-not (empty? (c/q db {:find ['p]
                                :where [['d :crux.db/id (:crux.db/id doc)]
-                                       ['d :crux.auth/doc 'p]
+                                       ['p :crux.auth/doc 'd]
                                        ['p :crux.auth.doc/write user]]}))
         ;; write it
         [[:crux.tx/put doc]]
@@ -102,7 +102,9 @@
     (vec (apply concat (map (fn [tx]
                               (case (first tx)
                                 :crux.tx/put
-                                (alter-put cred (c/db node) (vec (rest tx)))
+                                (let [s (alter-put cred (c/db node) (vec (rest tx)))]
+                                  (tap> s)
+                                  s)
                                 []))
                             txs)))))
 

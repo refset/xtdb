@@ -22,29 +22,46 @@
              :nok/name "Eve"
              :nok/phone "+4479138382672"})
 
+;; where ∄ doc and user has auth
+;; alter-put => [[tmtdoc][tmtdoc-auth][tmtdoc-meta]]
 (a/submit-tx {:crux.auth/user :crux.auth.user/root}
              node
              [[:crux.tx/put
                :crux.auth.user/tmt
                tmtdoc]])
 
+;; where ∃ doc and user has auth
+;; => [[tmtdoc]]
 (a/alter-put {:crux.auth/user :crux.auth.user/root}
              (c/db node)
              [:crux.auth.user/tmt tmtdoc])
 
-(a/submit-tx {:crux.auth/user :crux.auth.user/root}
+;; where ∃ doc and user doesn't have auth
+;; => []
+(a/alter-put {:crux.auth/user :crux.auth.user/nobody}
+             (c/db node)
+             [:crux.auth.user/tmt tmtdoc])
+
+;; where ∄ doc and user doesn't have auth
+(a/alter-put {:crux.auth/user :crux.auth.user/nobody}
+             (c/db node)
+             [:crux.auth.user/tmt tmtnok])
+
+;; Shouldn't submit anything as user doesn't have write auth
+(a/submit-tx {:crux.auth/user :crux.auth.user/nobody}
              node
              [[:crux.tx/put :crux.auth.user/tmt tmtnok]
               [:crux.tx/put :crux.auth.user/tmt tmtdoc]])
 
-(merge {:me "tom"
-        :you "test"}
-       {:me "you"})
+;; Succeeds
+(a/submit-tx {:crux.auth/user :crux.auth.user/root}
+             node
+             [[:crux.tx/put :crux.auth.user/tmt tmtnok]])
+
+;; Currently everyone can read
+(c/q (c/db node) {:find ['doc-auth 'p]
+                  :where [['doc-auth :crux.auth/doc :person/tmt]
+                          ['doc-auth :crux.auth.doc/read 'p]]})
+
 
 (.close node)
-
-(concat [:test] nil nil)
-
-(case (first [:crux.tx/put])
-  :crux.tx/put "yes"
-  "no")
