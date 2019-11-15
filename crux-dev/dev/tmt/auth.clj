@@ -70,10 +70,10 @@
       :full-results? true})
 
 ;; Restrict nok to just :crux.auth.user/tmt
-(a/set-privilage {:crux.auth/user :crux.auth.user/tmt}
-                 node
-                 :person.nok/tmt
-                 {:crux.auth/read [:crux.auth.user/tmt]})
+(a/set-auth-doc {:crux.auth/user :crux.auth.user/tmt}
+                node
+                :person.nok/tmt
+                {:crux.auth/read [:crux.auth.user/tmt]})
 
 ;; Now mal gets no results
 (a/q {:crux.auth/user :crux.auth.user/mal}

@@ -68,4 +68,40 @@
              #{[:crux.auth/meta :crux.auth.user/tmt :all]
                [:crux.auth/doc :crux.auth.user/root :all]
                [:crux.auth/meta :crux.auth.user/root :all]
-               [:crux.auth/doc :crux.auth.user/tmt :all]}))))
+               [:crux.auth/doc :crux.auth.user/tmt :all]}))
+
+    ;; NOTE a/alter-put is the function a/submit-tx uses to transform
+    ;; :crux.tx/put operations
+
+    ;; where ∃ doc and user has auth
+    ;; => [[tmtdoc]]
+    (t/is (= (a/alter-put {:crux.auth/user :crux.auth.user/root}
+                          (c/db node)
+                          [:crux.auth.user/tmt tmtdoc])
+             [[:crux.tx/put tmtdoc]]))
+    ;; where ∃ doc and user doesn't have auth
+    ;; => []
+    (t/is (= (a/alter-put {:crux.auth/user :crux.auth.user/nobody}
+                          (c/db node)
+                          [:crux.auth.user/tmt tmtdoc]) []))
+    ;; where ∄ doc and user doesn't have auth
+    ;; => []
+    (t/is (= (a/alter-put {:crux.auth/user :crux.auth.user/nobody}
+                          (c/db node)
+                          [:crux.auth.user/tmt tmtnok]) []))
+
+    ;; Shouldn't submit anything as user doesn't have write auth
+    ;; returns a submit map but if you look at the tap you can see that an empty
+    ;; map is entered to submit-tx
+    (t/is (= (a/alter-put {:crux.auth/user :crux.auth.user/tmt}
+                          (c/db node)
+                          [:crux.auth.user/tmt tmtnok]) []))))
+
+(t/deftest set-auth-doc-test
+  (with-open [^crux.api.ICruxAPI node (c/start-node {:crux.node/topology :crux.standalone/topology
+                                                     :crux.node/kv-store "crux.kv.memdb/kv"
+                                                     :crux.standalone/event-log-kv-store "crux.kv.memdb/kv"
+                                                     :crux.kv/db-dir "data/db-dir-auth-t"
+                                                     :crux.standalone/event-log-dir "data/eventlog-auth-t"})]
+
+    ))

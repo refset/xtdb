@@ -98,8 +98,8 @@
 ;; TODO sort out validtime & endvaltime
 ;; TODO check for reserved namespce keys (:crux.auth...)
 (defn submit-tx
-  "Wraps crux.api/submit-tx in an authentication layer.
-  If put atempts to put existing document if an optional auth-doc is specified"
+  "Wraps crux.api/submit-tx in an authentication layer.  If put atempts to put
+  existing document if an optional auth-doc is specified"
   [cred node txs]
   (c/submit-tx
     node
@@ -112,7 +112,7 @@
 
 ;; TODO maybe should check priv to check for :crux.db/id or any other keys
 ;; that'd mess this up
-(defn set-privilage
+(defn set-auth-doc
   "Sets read write privilages for a doc"
   [cred node doc-id priv]
   ;; ∃ doc ? (& is not meta or doc)
