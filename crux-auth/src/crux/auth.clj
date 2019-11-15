@@ -4,6 +4,7 @@
 ;; actually returned in the original find, however this is really a fault of
 ;; the query.
 ;; Maybe move to utils.
+;; TODO move :all to :crux.auth.user/all
 (defn alter-query
   "Joins the authentication doc into the query."
   [user query & condition]

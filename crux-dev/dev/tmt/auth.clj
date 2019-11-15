@@ -15,6 +15,7 @@
 (c/q (c/db node) {:find ['e] :where [['e :crux.db/id '_]] :full-results? true})
 
 (def tmtdoc {:crux.db/id :person/tmt
+             :person/name "Tom"
              :person/dob #inst "1996-06-21"
              :person/nok :person.nok/tmt})
 (def tmtnok {:crux.db/id :person.nok/tmt
@@ -73,10 +74,11 @@
 (a/set-auth-doc {:crux.auth/user :crux.auth.user/tmt}
                 node
                 :person.nok/tmt
-                {:crux.auth/read [:crux.auth.user/tmt]})
+                {:crux.auth/read [:crux.auth.user/tmt [:ice :crux.auth.user/mal]]})
 
 ;; Now mal gets no results
-(a/q {:crux.auth/user :crux.auth.user/mal}
+(a/q {:crux.auth/user :crux.auth.user/mal
+      :crux.auth/condition :ice}
      (c/db node)
      {:find ['me-nok]
       :where [['me-nok :crux.db/id :person.nok/tmt]]
