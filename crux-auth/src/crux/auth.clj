@@ -43,8 +43,7 @@
     :else
     (let [condition (:crux.auth/condition cred)
           user (:crux.auth/user cred)
-          alteredq (alter-query user query condition)
-          _ (tap> alteredq)]
+          alteredq (alter-query user query condition)]
       (c/q db alteredq))))
 
 (defn alter-put
@@ -108,7 +107,7 @@
                               (case (first tx)
                                 :crux.tx/put
                                 (let [s (alter-put cred (c/db node) (vec (rest tx)))]
-                                  (tap> s) s)
+                                  s)
                                 [])) txs)))))
 
 ;; TODO maybe should check priv to check for :crux.db/id or any other keys
@@ -129,8 +128,7 @@
                                          :full-results? true}))
        ;; create set function
        new-auth-doc [[:crux.tx/put (merge auth-doc priv)]]
-       set-priv #(c/submit-tx node new-auth-doc)
-       _ (tap> new-auth-doc)]
+       set-priv #(c/submit-tx node new-auth-doc)]
       ;; user ∋ :w ?
       (if (first (c/q (c/db node) {:find ['u]
                                    :where

@@ -29,6 +29,8 @@
                :crux.auth.user/tmt
                tmtdoc]])
 
+
+
 ;; where ∃ doc and user has auth
 ;; => [[tmtdoc]]
 (a/alter-put {:crux.auth/user :crux.auth.user/root}
