@@ -8,6 +8,7 @@
                  [ring/ring-core "1.7.1"]
                  [ring/ring-jetty-adapter "1.7.1"]
                  [ring/ring-codec "1.1.2"]
-                 [ring-cors "0.1.13"]]
+                 [ring-cors "0.1.13"]
+                 [cheshire "5.9.0"]]
   :profiles {:dev {:dependencies [[ch.qos.logback/logback-classic "1.2.3"]]}}
   :middleware [leiningen.project-version/middleware])

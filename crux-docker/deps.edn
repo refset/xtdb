@@ -1,6 +1,6 @@
 {:deps
- {juxt/crux-http-server {:mvn/version "20.01-1.6.2-alpha"}
-  juxt/crux-core {:mvn/version "20.01-1.6.2-alpha"}
+ {juxt/crux-http-server {:mvn/version "20.01-1.6.3-alpha-SNAPSHOT"}
+  juxt/crux-core {:mvn/version "20.01-1.6.3-alpha-SNAPSHOT"}
 
   integrant {:mvn/version "0.7.0"}
   integrant/repl {:mvn/version "0.3.1"}

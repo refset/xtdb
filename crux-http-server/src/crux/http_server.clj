@@ -16,7 +16,8 @@
             [ring.middleware.params :as p]
             [ring.util.io :as rio]
             [ring.util.request :as req]
-            [ring.util.time :as rt])
+            [ring.util.time :as rt]
+            [cheshire.core :as ch])
   (:import [crux.api ICruxAPI ICruxDatasource NodeOutOfSyncException]
            [java.io Closeable IOException]
            java.time.Duration
@@ -30,6 +31,26 @@
   (->> request
        req/body-string
        (c/read-edn-string-with-readers)))
+
+(defn- jsbody->edn [request]
+  (-> request
+       req/body-string
+       (ch/parse-string keyword);(fn [k] (if (= k "crux.db/id") (keyword k) k))) ; at least all top-level keys must be keywords
+       (#(if (seq? %) (vec %) %))))
+
+(defn- jsquery [q]
+  (-> q
+      (update :find c/read-edn-string-with-readers)
+      (update :where c/read-edn-string-with-readers)))
+
+; {"crux.db/id":{"crux.db/json-id":"true" "bblah":"asdf" "asdfasdf":"qqqq"}}
+
+; what would an OpenAPI implementation look like? Could it work?
+; we should probably still separate the handlers out so you can use an existing webserver (with relative paths?)
+
+(defn- prjs [m]
+ (prn m)
+ (ch/generate-string m))
 
 (defn- check-path [[path-pattern valid-methods] request]
   (let [path (req/path-info request)
@@ -47,12 +68,12 @@
   (response (if m
               200
               404)
-            {"Content-Type" "application/edn"}
-            (cio/pr-edn-str m)))
+            {"Content-Type" "application/json"}
+            (prjs m)))
 
 (defn- exception-response [status ^Exception e]
   (response status
-            {"Content-Type" "application/edn"}
+            {"Content-Type" "application/json"}
             (with-out-str
               (pp/pprint (Throwable->map e)))))
 
@@ -65,7 +86,7 @@
           (if (and (.getMessage e)
                    (str/starts-with? (.getMessage e) "Spec assertion failed"))
             (exception-response 400 e) ;; Valid edn, invalid content
-            (do (log/error e "Exception while handling request:" (cio/pr-edn-str request))
+            (do (log/error e "Exception while handling request:" (cio/pr-edn-str request)) ;; TODO escape error as JSON string
                 (exception-response 500 e))))) ;; Valid content; something internal failed, or content validity is not properly checked
       (catch Exception e
         (exception-response 400 e))))) ;;Invalid edn
@@ -85,8 +106,8 @@
             (:crux.zk/zk-active? status-map))
       (success-response status-map)
       (response 500
-                {"Content-Type" "application/edn"}
-                (cio/pr-edn-str status-map)))))
+                {"Content-Type" "application/json"}
+                (prjs status-map)))))
 
 (defn- document [^ICruxAPI crux-node request]
   (let [[_ content-hash] (re-find #"^/document/(.+)$" (req/path-info request))]
@@ -150,11 +171,11 @@
           (fn [out]
             (with-open [ctx ctx
                         out (io/writer out)]
-              (.write out "(")
+              (.write out "[")
               (doseq [x edn]
-                (.write out (cio/pr-edn-str x)))
-              (.write out ")"))))
-         (response 200 {"Content-Type" "application/edn"}))
+                (.write out (prjs x)))
+              (.write out "]"))))
+         (response 200 {"Content-Type" "application/json"}))
     (catch Throwable t
       (.close ctx)
       (throw t))))
@@ -171,10 +192,10 @@
 ;; TODO: Potentially require both valid and transaction time sent by
 ;; the client?
 (defn- query [^ICruxAPI crux-node request]
-  (let [query-map (s/assert ::query-map (body->edn request))
+  (let [query-map (jsbody->edn request);(s/assert ::query-map (body->edn request))
         db (db-for-request crux-node query-map)]
     (-> (success-response
-         (.q db (:query query-map)))
+         (.q db (jsquery (:query query-map))))
         (add-last-modified (.transactionTime db)))))
 
 (defn- query-stream [^ICruxAPI crux-node request]
@@ -193,7 +214,8 @@
 
 ;; TODO: Could support as-of now via path and GET.
 (defn- entity [^ICruxAPI crux-node request]
-  (let [{:keys [eid] :as body} (s/assert ::entity-map (body->edn request))
+  (let [{:keys [eid] :as body} (jsbody->edn request);(s/assert ::entity-map (body->edn request))
+        _ (prn eid "IED")
         db (db-for-request crux-node body)
         {:keys [crux.tx/tx-time] :as entity-tx} (.entityTx db eid)]
     (-> (success-response (.entity db eid))
@@ -223,7 +245,8 @@
         (add-last-modified (get-in (.status crux-node) [:crux.tx/latest-completed-tx :crux.tx/tx-time])))))
 
 (defn- transact [^ICruxAPI crux-node request]
-  (let [tx-ops (body->edn request)
+  (let [tx-ops (mapv (fn [[op & args]] (into [(keyword op)] args)) (jsbody->edn request))
+;        _ (prn tx-ops)
         {:keys [crux.tx/tx-time] :as submitted-tx} (.submitTx crux-node tx-ops)]
     (-> (success-response submitted-tx)
         (assoc :status 202)
@@ -271,61 +294,62 @@
 ;; Jetty server
 
 (defn- handler [crux-node request]
-  (condp check-path request
-    [#"^/$" [:get]]
-    (status crux-node)
+  (let [is-json (= (get request "content-type") "application/json")] ; TODO weave this through and bring back edn functionality
+    (condp check-path request
+      [#"^/$" [:get]]
+      (status crux-node)
 
-    [#"^/document/.+$" [:get :post]]
-    (document crux-node request)
+      [#"^/document/.+$" [:get :post]]
+      (document crux-node request)
 
-    [#"^/documents" [:post]]
-    (documents crux-node request)
+      [#"^/documents" [:post]]
+      (documents crux-node request)
 
-    [#"^/entity$" [:post]]
-    (entity crux-node request)
+      [#"^/entity$" [:post]]
+      (entity crux-node request)
 
-    [#"^/entity-tx$" [:post]]
-    (entity-tx crux-node request)
+      [#"^/entity-tx$" [:post]]
+      (entity-tx crux-node request)
 
-    [#"^/history/.+$" [:get :post]]
-    (history crux-node request)
+      [#"^/history/.+$" [:get :post]]
+      (history crux-node request)
 
-    [#"^/history-range/.+$" [:get]]
-    (history-range crux-node request)
+      [#"^/history-range/.+$" [:get]]
+      (history-range crux-node request)
 
-    [#"^/history-ascending$" [:post]]
-    (history-ascending crux-node request)
+      [#"^/history-ascending$" [:post]]
+      (history-ascending crux-node request)
 
-    [#"^/history-descending$" [:post]]
-    (history-descending crux-node request)
+      [#"^/history-descending$" [:post]]
+      (history-descending crux-node request)
 
-    [#"^/query$" [:post]]
-    (query crux-node request)
+      [#"^/query$" [:post]]
+      (query crux-node request)
 
-    [#"^/query-stream$" [:post]]
-    (query-stream crux-node request)
+      [#"^/query-stream$" [:post]]
+      (query-stream crux-node request)
 
-    [#"^/attribute-stats" [:get]]
-    (attribute-stats crux-node)
+      [#"^/attribute-stats" [:get]]
+      (attribute-stats crux-node)
 
-    [#"^/sync$" [:get]]
-    (sync-handler crux-node request)
+      [#"^/sync$" [:get]]
+      (sync-handler crux-node request)
 
-    [#"^/tx-log$" [:get]]
-    (tx-log crux-node request)
+      [#"^/tx-log$" [:get]]
+      (tx-log crux-node request)
 
-    [#"^/tx-log$" [:post]]
-    (transact crux-node request)
+      [#"^/tx-log$" [:post]]
+      (transact crux-node request)
 
-    [#"^/tx-committed$" [:get]]
-    (tx-committed? crux-node request)
+      [#"^/tx-committed$" [:get]]
+      (tx-committed? crux-node request)
 
-    (if (and (check-path [#"^/sparql/?$" [:get :post]] request)
-             sparql-available?)
-      ((resolve 'crux.sparql.protocol/sparql-query) crux-node request)
-      {:status 400
-       :headers {"Content-Type" "text/plain"}
-       :body "Unsupported method on this address."})))
+      (if (and (check-path [#"^/sparql/?$" [:get :post]] request)
+               sparql-available?)
+        ((resolve 'crux.sparql.protocol/sparql-query) crux-node request)
+        {:status 400
+         :headers {"Content-Type" "text/plain"}
+         :body "Unsupported method on this address."}))))
 
 (def ^:const default-server-port 3000)
 
