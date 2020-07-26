@@ -628,6 +628,33 @@
             (t/is (= {:crux.db/id :foo, :foo 4}
                      (crux/entity (crux/db *api*) :foo)))))
 
+        (t/testing "sees in-transaction version of entities via query (including itself)"
+          (fix/submit+await-tx [[:crux.tx/put {:crux.db/id :foo, :foo 1}]])
+          (let [tx (fix/submit+await-tx [[:crux.tx/put {:crux.db/id :foo, :foo 2}]
+                                         [:crux.tx/put {:crux.db/id :add
+                                                        :crux.db/fn '(fn [ctx doc]
+                                                                       [[:crux.tx/put doc]])}]
+                                         #_[:crux.tx/put {:crux.db/id :bar, :ref :foo}] ;; :prn-out works as expected when putting directly
+                                         [:crux.tx/fn :add {:crux.db/id :bar, :ref :foo}] ;; it doesn't work using this :add txfn
+                                         [:crux.tx/put {:crux.db/id :doubling-fn
+                                                        :crux.db/fn '(fn [ctx]
+                                                                       (let [db (crux.api/db ctx)]
+                                                                         [[:crux.tx/put {:crux.db/id :prn-out
+                                                                                         :e (do (crux.api/entity db :bar))
+                                                                                         :q (do (first (crux.api/q db {:find '[e v] :where '[[e :crux.db/id :bar]
+                                                                                                                                             [e :ref v]]})))}]
+                                                                          [:crux.tx/put (-> (crux.api/entity db :foo)
+                                                                                            (update :foo * 2))]]))}]
+                                         [:crux.tx/fn :doubling-fn]])]
+
+            (t/is (crux/tx-committed? *api* tx))
+            (t/is (= {:crux.db/id :foo, :foo 4}
+                     (crux/entity (crux/db *api*) :foo)))
+            (t/is (= {:crux.db/id :prn-out
+                      :e {:crux.db/id :bar :ref :foo}
+                      :q [:bar :foo]}
+                     (crux/entity (crux/db *api*) :prn-out)))))
+
         (t/testing "function ops can return other function ops"
           (let [returns-fn {:crux.db/id :returns-fn
                             :crux.db/fn '(fn [ctx]
