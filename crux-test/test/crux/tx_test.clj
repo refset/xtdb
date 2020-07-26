@@ -544,6 +544,7 @@
   (with-redefs [tx/tx-fn-eval-cache (memoize eval)]
     (let [v1-ivan {:crux.db/id :ivan :name "Ivan" :age 40}
           v4-ivan (assoc v1-ivan :name "IVAN")
+          v5-ivan {:crux.db/id :ivan :name "MODIFIED IVAN"}
           update-attribute-fn {:crux.db/id :update-attribute-fn
                                :crux.db/fn '(fn [ctx eid k f]
                                               [[:crux.tx/put (update (crux.api/entity (crux.api/db ctx) eid) k (eval f))]])}]
@@ -636,6 +637,16 @@
             (fix/submit+await-tx [[:crux.tx/fn :returns-fn]])
             (some-> (#'tx/reset-tx-fn-error) throw)
             (t/is (= v4-ivan (api/entity (api/db *api*) :ivan)))))
+
+        (t/testing "function ops can return other function ops that also the forked ctx"
+          (let [returns-fn {:crux.db/id :returns-fn
+                            :crux.db/fn '(fn [ctx]
+                                           [[:crux.tx/put {:crux.db/id :ivan :name "modified ivan"}]
+                                            [:crux.tx/fn :update-attribute-fn :ivan :name `string/upper-case]])}]
+            (fix/submit+await-tx [[:crux.tx/put returns-fn]])
+            (fix/submit+await-tx [[:crux.tx/fn :returns-fn]])
+            (some-> (#'tx/reset-tx-fn-error) throw)
+            (t/is (= v5-ivan (api/entity (api/db *api*) :ivan)))))
 
         (t/testing "repeated 'merge' operation behaves correctly"
           (let [v5-ivan (merge v4-ivan
