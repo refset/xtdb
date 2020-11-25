@@ -218,6 +218,13 @@
         (catch Exception t
           (t/is (= "Lucene store latest tx mismatch" (ex-message (ex-cause t)))))))))
 
+(t/deftest test-namespaced-attributes
+  (submit+await-tx [[:crux.tx/put {:crux.db/id :real-ivan-2 :myns/name "Ivan Bob"}]])
+  (with-open [db (c/open-db *api*)]
+    (t/is (seq (c/q db {:find '[?e ?v]
+                        :where '[[(text-search :myns/name "Ivan") [[?e ?v]]]
+                                 [?e :crux.db/id]]})))))
+
 (comment
   (do
     (import '[ch.qos.logback.classic Level Logger]
