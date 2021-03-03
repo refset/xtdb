@@ -3686,6 +3686,67 @@
                                 (max problematic-ns workedaround-ns)))]
         (t/is (>= slowdown acceptable-limit-slowdown))))))
 
+(t/deftest test-cardinality-join-slowdown2
+  (fix/transact! *api* (fix/people
+                        (for [n (range 1000)]
+                          {:crux.db/id (keyword (str "ivan-" n))
+                           :my-name "Ivan"
+                           :my-surname "Ivanov"
+                           :my-number n})))
+
+  (let [acceptable-limit-slowdown 0.7
+        problematic-ns-start (System/nanoTime)]
+    (t/is (= 4 (count (api/q (api/db *api*)
+                                '{:find [e1]
+                                  :in [[n ...] name surname]
+                                  :where [[e1 :my-name name]
+                                          [e1 :my-surname surname]
+                                          [e1 :my-number n]]}
+                                [20 40 60 80] "Ivan" "Ivanov"))))
+    (let [problematic-ns (- (System/nanoTime) problematic-ns-start)
+          workedaround-ns-start (System/nanoTime)]
+      (t/is (= 4 (count (api/q (api/db *api*)
+                                  '{:find [e1]
+                                    :in [[n ...]]
+                                    :where [[e1 :my-name "Ivan"]
+                                            [e1 :my-surname "Ivanov"]
+                                            [e1 :my-number n]]}
+                                  [20 40 60 80]))))
+      (let [workedaround-ns (- (System/nanoTime) workedaround-ns-start)
+            slowdown (double (/ (min problematic-ns workedaround-ns)
+                                (max problematic-ns workedaround-ns)))]
+        (t/is (>= slowdown acceptable-limit-slowdown))
+        #_(t/is (= :foo [problematic-ns workedaround-ns]))))))
+
+(t/deftest test-in-arg-slowdown
+  (fix/transact! *api* (fix/people
+                        (for [n (range 10000)]
+                          {:crux.db/id (keyword (str "ivan-" n))
+                           :my-name "Ivan"
+                           :my-surname "Ivanov"
+                           :my-number n})))
+
+  ;; problematic is always ~2x slower
+  (let [acceptable-limit-slowdown 0.7
+        problematic-ns-start (System/nanoTime)]
+    (t/is (= 10000 (count (api/q (api/db *api*)
+                                '{:find [e1]
+                                  :in [ivan]
+                                  :where [[e1 :my-name ivan]
+                                          [e1 :my-number n]]}
+                                "Ivan"))))
+    (let [problematic-ns (- (System/nanoTime) problematic-ns-start)
+          workedaround-ns-start (System/nanoTime)]
+      (t/is (= 10000 (count (api/q (api/db *api*)
+                                  '{:find [e1]
+                                    :where [[e1 :my-name "Ivan"]
+                                            [e1 :my-number n]]}))))
+      (let [workedaround-ns (- (System/nanoTime) workedaround-ns-start)
+            slowdown (double (/ (min problematic-ns workedaround-ns)
+                                (max problematic-ns workedaround-ns)))]
+        (t/is (>= slowdown acceptable-limit-slowdown))
+        #_(t/is (= :foo [problematic-ns workedaround-ns]))))))
+
 (comment
   ;; repro for https://github.com/juxt/crux/issues/443, don't have a solution yet though
   ;; replacing x with 0..50 and y with 0..100 takes a long time.
