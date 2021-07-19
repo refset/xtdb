@@ -295,7 +295,7 @@
                :secondary-indices :crux/secondary-indices
                :checkpointer (fn [_])}
    ::sys/before #{[:crux/tx-ingester]}}
-  [{:keys [^Path db-dir document-store analyzer indexer query-engine secondary-indices checkpointer fsync-frequency]}]
+  [{:keys [^Path db-dir document-store analyzer indexer query-engine secondary-indices checkpointer fsync-frequency] :as opts}]
   (let [directory (if db-dir
                     (FSDirectory/open db-dir)
                     (ByteBuffersDirectory.))
@@ -314,7 +314,10 @@
 
     ;; Ensure lucene index exists for immediate queries:
     (.commit index-writer)
-    (q/assoc-pred-ctx! query-engine ::lucene-store lucene-store)
+
+    (when-let [{:keys [::sys/module-key]} (meta opts)]
+      (when (= 1 (count module-key))
+        (q/assoc-pred-ctx! query-engine (first module-key) lucene-store)))
 
     (tx/register-index! secondary-indices
                         (latest-completed-tx-id index-writer)
