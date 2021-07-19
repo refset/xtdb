@@ -119,13 +119,18 @@
      (search* lucene-store
               (parse-query lucene-store query opts)))))
 
-(defn pred-constraint [query-builder results-resolver {:keys [arg-bindings idx-id return-type tuple-idxs-in-join-order ::lucene-store]}]
+(defn pred-constraint [query-builder results-resolver {:keys [arg-bindings idx-id return-type tuple-idxs-in-join-order ::lucene-store] :as pred-ctx}]
   (fn pred-get-attr-constraint [index-snapshot db idx-id->idx join-keys]
     (let [arg-bindings (map (fn [a]
                               (if (instance? VarBinding a)
                                 (q/bound-result-for-var index-snapshot a join-keys)
                                 a))
                             (rest arg-bindings))
+          lucene-store (or (->> arg-bindings
+                                last
+                                :lucene-store-k
+                                (get pred-ctx))
+                           lucene-store)
           query (query-builder (:analyzer lucene-store) arg-bindings)
           tuples (with-open [search-results ^crux.api.ICursor (search* lucene-store query)]
                    (->> search-results
@@ -154,7 +159,11 @@
           search-results))
 
 (defmethod q/pred-args-spec 'text-search [_]
-  (s/cat :pred-fn  #{'text-search} :args (s/spec (s/cat :attr keyword? :v (some-fn string? symbol?))) :return (s/? :crux.query/binding)))
+  (s/cat :pred-fn  #{'text-search} :args (s/spec (s/alt :without-opts (s/cat :attr keyword? :v (some-fn string? symbol?))
+                                                        :with-opts (s/cat :attr keyword?
+                                                                          :v (some-fn string? symbol?)
+                                                                          :opts (some-fn map? symbol?))))
+         :return (s/? :crux.query/binding)))
 
 (defmethod q/pred-constraint 'text-search [_ pred-ctx]
   (let [resolver (partial resolve-search-results-a-v (second (:arg-bindings pred-ctx)))]
