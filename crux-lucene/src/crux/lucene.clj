@@ -126,16 +126,27 @@
                                 (q/bound-result-for-var index-snapshot a join-keys)
                                 a))
                             (rest arg-bindings))
-          lucene-store (or (->> arg-bindings
-                                last
-                                :lucene-store-k
-                                (get pred-ctx))
+          {:keys [raw-limit result-limit lucene-store-k] :as opts} (let [m (last arg-bindings)]
+                                                                     (when (map? m)
+                                                                       m))
+          arg-bindings (if opts
+                         (butlast arg-bindings)
+                         arg-bindings)
+          lucene-store (or (get pred-ctx lucene-store-k)
                            lucene-store)
+          raw-limit-fn (if (nil? raw-limit)
+                         identity
+                         (partial take raw-limit))
+          result-limit-fn (if (nil? result-limit)
+                            identity
+                            (partial take result-limit))
           query (query-builder (:analyzer lucene-store) arg-bindings)
           tuples (with-open [search-results ^crux.api.ICursor (search* lucene-store query)]
                    (->> search-results
                         iterator-seq
+                        raw-limit-fn
                         (results-resolver index-snapshot db)
+                        result-limit-fn
                         (into [])))]
       (q/bind-binding return-type tuple-idxs-in-join-order (get idx-id->idx idx-id) tuples))))
 
