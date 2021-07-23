@@ -32,7 +32,7 @@
     (cio/try-close index-writer)
     (cio/try-close directory)))
 
-(defn- ^String ->hash-str [eid]
+(defn ^String ->hash-str [eid]
   (str (cc/new-id eid)))
 
 (defrecord DocumentId [e a v])
@@ -41,10 +41,10 @@
   (subs (str k) 1))
 
 (def ^:const ^:private index-version 1)
-(def ^:const ^:private field-crux-id "_crux_id")
-(def ^:const ^:private field-crux-val "_crux_val")
-(def ^:const ^:private field-crux-attr "_crux_attr")
-(def ^:const ^:private field-crux-eid "_crux_eid")
+(def ^:const field-crux-id "_crux_id")
+(def ^:const field-crux-val "_crux_val")
+(def ^:const field-crux-attr "_crux_attr")
+(def ^:const field-crux-eid "_crux_eid")
 
 (defn- validate-index-version [^IndexWriter writer]
   (let [found-index-version (some-> (into {} (.getLiveCommitData writer))
@@ -99,9 +99,9 @@
         (throw t)))))
 
 (defn- parse-query
-  ([lucene-store query] (parse-query lucene-store query {}))
+  ([analyzer query] (parse-query analyzer query {}))
 
-  ([{:keys [analyzer]} query {:keys [default-field], :or {default-field field-crux-val}}]
+  ([analyzer query {:keys [default-field], :or {default-field field-crux-val}}]
    (cond
      (instance? Query query) query
      (string? query) (.parse (QueryParser. default-field analyzer)
@@ -111,51 +111,44 @@
   ([node query]
    (search node query {}))
 
-  ([node query {:keys [lucene-store-k],
-                :or {lucene-store-k ::lucene-store}
+  ([node query {:keys [lucene-store-k analyzer],
+                :or {lucene-store-k ::lucene-store
+                     analyzer (StandardAnalyzer.)}
                 :as opts}]
    (let [lucene-store (-> @(:!system node)
                           (get lucene-store-k))]
      (search* lucene-store
-              (parse-query lucene-store query opts)))))
+              (parse-query analyzer query opts)))))
 
 (defn pred-constraint [query-builder results-resolver {:keys [arg-bindings idx-id return-type tuple-idxs-in-join-order ::lucene-store] :as pred-ctx}]
-  (fn pred-get-attr-constraint [index-snapshot db idx-id->idx join-keys]
+  (fn pred-lucene-constraint [index-snapshot db idx-id->idx join-keys]
     (let [arg-bindings (map (fn [a]
                               (if (instance? VarBinding a)
                                 (q/bound-result-for-var index-snapshot a join-keys)
                                 a))
                             (rest arg-bindings))
-          {:keys [raw-limit result-limit lucene-store-k] :as opts} (let [m (last arg-bindings)]
-                                                                     (when (map? m)
-                                                                       m))
+          {:keys [lucene-store-k] :as opts} (let [m (last arg-bindings)]
+                                              (when (map? m)
+                                                m))
           arg-bindings (if opts
                          (butlast arg-bindings)
                          arg-bindings)
           lucene-store (or (get pred-ctx lucene-store-k)
                            lucene-store)
-          raw-limit-fn (if (nil? raw-limit)
-                         identity
-                         (partial take raw-limit))
-          result-limit-fn (if (nil? result-limit)
-                            identity
-                            (partial take result-limit))
-          query (query-builder (:analyzer lucene-store) arg-bindings)
+          query (query-builder arg-bindings)
           tuples (with-open [search-results ^crux.api.ICursor (search* lucene-store query)]
-                   (->> search-results
-                        iterator-seq
-                        raw-limit-fn
-                        (results-resolver index-snapshot db)
-                        result-limit-fn
-                        (into [])))]
+                   (-> search-results
+                       iterator-seq
+                       (->> (results-resolver index-snapshot db))
+                       (->> (into []))))]
       (q/bind-binding return-type tuple-idxs-in-join-order (get idx-id->idx idx-id) tuples))))
 
 (defn ^Query build-query
   "Standard build query fn, taking a single field/val lucene term string."
-  [^Analyzer analyzer, [k v]]
+  [[k v]]
   (when-not (string? v)
     (throw (IllegalArgumentException. "Lucene text search values must be String")))
-  (parse-query {:analyzer analyzer}
+  (parse-query (StandardAnalyzer.)
                v
                {:default-field (keyword->k k)}))
 
@@ -170,17 +163,18 @@
           search-results))
 
 (defmethod q/pred-args-spec 'text-search [_]
-  (s/cat :pred-fn  #{'text-search} :args (s/spec (s/alt :without-opts (s/cat :attr keyword? :v (some-fn string? symbol?))
-                                                        :with-opts (s/cat :attr keyword?
-                                                                          :v (some-fn string? symbol?)
-                                                                          :opts (some-fn map? symbol?))))
+  (s/cat :pred-fn  #{'text-search}
+         :args (s/spec
+                (s/cat :attr keyword?
+                       :v (some-fn string? q/logic-var?)
+                       :opts (s/? (some-fn map? q/logic-var?))))
          :return (s/? :crux.query/binding)))
 
 (defmethod q/pred-constraint 'text-search [_ pred-ctx]
   (let [resolver (partial resolve-search-results-a-v (second (:arg-bindings pred-ctx)))]
     (pred-constraint #'build-query resolver pred-ctx)))
 
-(defn- resolve-search-results-a-v-wildcard
+(defn resolve-search-results-a-v-wildcard
   "Given search results each containing a single A/V pair document,
   perform a temporal resolution against A/V to resolve the eid."
   [index-snapshot {:keys [entity-resolver-fn] :as db} search-results]
@@ -193,16 +187,16 @@
 
 (defn ^Query build-query-wildcard
   "Wildcard query builder"
-  [^Analyzer analyzer, [v]]
+  [[v]]
   (when-not (string? v)
     (throw (IllegalArgumentException. "Lucene text search values must be String")))
-  (let [qp (QueryParser. field-crux-val analyzer)
+  (let [qp (QueryParser. field-crux-val (StandardAnalyzer.))
         b (doto (BooleanQuery$Builder.)
             (.add (.parse qp v) BooleanClause$Occur/MUST))]
     (.build b)))
 
 (defmethod q/pred-args-spec 'wildcard-text-search [_]
-  (s/cat :pred-fn #{'wildcard-text-search} :args (s/spec (s/cat :v (some-fn string? symbol?))) :return (s/? :crux.query/binding)))
+  (s/cat :pred-fn #{'wildcard-text-search} :args (s/spec (s/cat :v (some-fn string? q/logic-var?))) :return (s/? :crux.query/binding)))
 
 (defmethod q/pred-constraint 'wildcard-text-search [_ pred-ctx]
   (pred-constraint #'build-query-wildcard #'resolve-search-results-a-v-wildcard pred-ctx))
@@ -221,7 +215,7 @@
                                  (for [v (cc/vectorize-value v)
                                        :when (string? v)]
                                    [a v]))))
-            :let [id-str (->hash-str (DocumentId. e a v))
+            :let [id-str (->hash-str (->DocumentId e a v))
                   doc (doto (Document.)
                         ;; To search for triples by e-a-v for deduping
                         (.add (StringField. field-crux-id, id-str, Field$Store/NO))
@@ -229,6 +223,7 @@
                         (.add (TextField. (keyword->k a), v, Field$Store/YES))
                         ;; Used for wildcard searches
                         (.add (TextField. field-crux-val, v, Field$Store/YES))
+                        ;; Used for eviction
                         (.add (TextField. field-crux-eid, (->hash-str e), Field$Store/YES))
                         ;; Used for wildcard searches
                         (.add (StringField. field-crux-attr, (keyword->k a), Field$Store/YES)))]]

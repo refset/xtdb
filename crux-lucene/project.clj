@@ -15,7 +15,8 @@
                  [pro.juxt.crux/crux-core "crux-git-version"]
 
                  [org.apache.lucene/lucene-core "8.6.1"]
-                 [org.apache.lucene/lucene-queryparser "8.6.1"]]
+                 [org.apache.lucene/lucene-queryparser "8.6.1"]
+                 [org.apache.lucene/lucene-analyzers-common "8.6.1"]]
 
   :profiles {:dev {:dependencies [[ch.qos.logback/logback-classic "1.2.3"]
                                   [pro.juxt.crux/crux-test "crux-git-version"]

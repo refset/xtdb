@@ -11,6 +11,7 @@
             [crux.query :as q]
             [crux.rocksdb :as rocks])
   (:import org.apache.lucene.analysis.Analyzer
+           org.apache.lucene.analysis.standard.StandardAnalyzer
            org.apache.lucene.document.Document
            [org.apache.lucene.index DirectoryReader Term]
            org.apache.lucene.queryparser.classic.QueryParser
@@ -327,9 +328,9 @@
   (t/is (c/tx-committed? *api* (c/await-tx *api* (c/submit-tx *api* [[:crux.tx/put {:crux.db/id 512 :id "1"}]])))))
 
 (defn ^Query build-or-query
-  [^Analyzer analyzer, query-args]
+  [query-args]
   (let [[k, vs] query-args
-        qp (QueryParser. (name k) analyzer)
+        qp (QueryParser. (name k) (StandardAnalyzer.))
         b  (BooleanQuery$Builder.)]
     (doseq [v vs]
       (.add b (.parse qp v) BooleanClause$Occur/SHOULD))

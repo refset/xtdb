@@ -5,6 +5,7 @@
             [crux.memory :as mem]
             [crux.query :as q])
   (:import org.apache.lucene.analysis.Analyzer
+           org.apache.lucene.analysis.standard.StandardAnalyzer
            [org.apache.lucene.document Document Field Field$Store StoredField StringField TextField]
            [org.apache.lucene.index IndexWriter Term]
            org.apache.lucene.queryparser.classic.QueryParser
@@ -36,10 +37,10 @@
       (.deleteDocuments ^IndexWriter index-writer ^"[Lorg.apache.lucene.search.Query;" (into-array Query [q])))))
 
 (defn ^Query build-lucene-text-query
-  [^Analyzer analyzer, [q & args]]
+  [[q & args]]
   (when-not (string? q)
     (throw (IllegalArgumentException. "lucene-text-search query must be String")))
-  (.parse (QueryParser. "" analyzer) (apply format q args)))
+  (.parse (QueryParser. "" (StandardAnalyzer.)) (apply format q args)))
 
 (defn- resolve-search-results-content-hash
   "Given search results each containing a content-hash, perform a
@@ -53,13 +54,13 @@
         search-results))
 
 (defmethod q/pred-args-spec 'lucene-text-search [_]
-  (s/cat :pred-fn #{'lucene-text-search} :args (s/spec (s/alt :without-opts (s/cat :query (some-fn string? symbol?)
+  (s/cat :pred-fn #{'lucene-text-search} :args (s/spec (s/alt :without-opts (s/cat :query (some-fn string? q/logic-var?)
                                                                                    :bindings (s/* (s/or :binding :crux.query/binding
                                                                                                         :string string?)))
-                                                              :with-opts (s/cat :query (some-fn string? symbol?)
+                                                              :with-opts (s/cat :query (some-fn string? q/logic-var?)
                                                                                 :bindings (s/* (s/or :binding :crux.query/binding
                                                                                                      :string string?))
-                                                                                :opts (some-fn map? symbol?))))
+                                                                                :opts (some-fn map? q/logic-var?))))
          :return (s/? :crux.query/binding)))
 
 (defmethod q/pred-constraint 'lucene-text-search [_ {::l/keys [lucene-store] :as pred-ctx}]
