@@ -437,7 +437,8 @@
                                        (merge re/default-handlers
                                               {crux.IllegalArgumentException handle-ex-info
                                                crux.api.NodeOutOfSyncException handle-ex-info
-                                               :muuntaja/decode handle-muuntaja-decode-error}))
+                                               :muuntaja/decode handle-muuntaja-decode-error
+                                               ::re/wrap re/wrap-log-to-console}))
                                       rm/format-request-middleware
                                       rrc/coerce-response-middleware
                                       rrc/coerce-request-middleware]
