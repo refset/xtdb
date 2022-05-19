@@ -17,6 +17,7 @@
            (org.slf4j LoggerFactory)
            (xtdb.api IXtdb)))
 
+
 (defn set-log-level! [ns level]
   (.setLevel ^Logger (LoggerFactory/getLogger (name ns))
              (when level
@@ -107,3 +108,27 @@
       (tpch/run-query (xt/db (xtdb-node))
                       (-> q
                           (assoc :timeout 120000)))))))
+
+(comment
+
+
+  (remove-ns 'dev)
+
+  (def sf 0.01)
+
+ (do (def n (xt/start-node {:xtdb/index-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                                          :db-dir (io/file "/tmp/i")}}
+                            :xtdb/document-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                                             :db-dir (io/file (str "/tmp/d" sf))}}
+                            :xtdb/tx-log {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                                     :db-dir (io/file (str  "/tmp/t" sf))}}}))
+     (time (xt/sync n)))
+
+ (tpch/load-docs! n sf 1)
+
+ (.close n)
+ (xt/attribute-stats n)
+
+ (require 'clojure.spec.alpha)
+ (clojure.spec.alpha/check-asserts false)
+  )

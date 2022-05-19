@@ -77,15 +77,15 @@
 
 (defn submit-docs!
   ([node]
-   (submit-docs! node default-scale-factor))
-  ([node sf]
+   (submit-docs! node default-scale-factor 1000))
+  ([node sf p]
    (println "Transacting TPC-H tables...")
    (->> (for [^TpchTable t (TpchTable/getTables)]
           (let [[last-tx doc-count] (->> (tpch-table->docs t sf)
-                                         (partition-all 1000)
+                                         (partition-all (* p 2))
                                          (reduce (fn [[_last-tx last-doc-count] chunk]
-                                                   [(xt/submit-tx node (vec (for [doc chunk]
-                                                                              [::xt/put doc])))
+                                                   [(xt/submit-tx node (vec (apply concat (for [doc chunk]
+                                                                                            [[::xt/match (:xt/id doc) nil] [::xt/put doc]]))))
                                                     (+ last-doc-count (count chunk))])
                                                  [nil 0]))]
             (println "Transacted" doc-count (.getTableName t))
