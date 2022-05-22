@@ -20,21 +20,22 @@
 
 (set! *unchecked-math* :warn-on-boxed)
 
-(defn column-family-id [^java.nio.ByteBuffer k]
+(comment (remove-ns 'xtdb.rocksdb))
+
+(defn column-family-id ^Integer [^java.nio.ByteBuffer k]
   (.get k 0))
 
-(defn wash-cfi [k]
+(defn wash-cfi ^Integer [k]
   (if (<= ^byte k 15) k 0))
 
-(defn ^ColumnFamilyHandle ->column-family-handle [{:keys [^java.util.List column-family-handles]} k]
-  (let [cfh (.get column-family-handles (wash-cfi (column-family-id k)))]
+(defn ^ColumnFamilyHandle ->column-family-handle [{:keys [^java.util.List column-family-handles]} ^Integer i]
+  (let [cfh (.get column-family-handles i)]
     (when-not cfh
       (throw (IllegalStateException. "Should have a column family defined")))
     cfh))
 
-
 (defn ^ColumnFamilyHandle ->column-family-handle2 [{:keys [^java.util.List column-family-handles]} k]
-  (let [cfh (.get column-family-handles ^byte (wash-cfi k))]
+  (let [cfh (.get column-family-handles (wash-cfi k))]
     (when-not cfh
       (throw (IllegalStateException. "Should have a column family defined")))
     cfh))
@@ -43,34 +44,34 @@
   (when (.isValid i)
     (mem/as-buffer (.key i))))
 
-(defrecord RocksKvIterator [i ^RocksDB db ^java.util.List column-family-handles ^ReadOptions read-options]
+(defrecord RocksKvIterator [!i ^RocksDB db ^java.util.List column-family-handles ^ReadOptions read-options]
   kv/KvIterator
   (seek [this k]
-    (when-not @i
-      (reset! i (.newIterator db (->column-family-handle2 this (first (mem/->on-heap k))) read-options)))
-    (.seek ^RocksIterator @i (mem/direct-byte-buffer k))
-    (iterator->key ^RocksIterator @i))
+    (when-not @!i
+      (vreset! !i (.newIterator db (->column-family-handle2 this (first (mem/->on-heap k))) read-options)))
+    (.seek ^RocksIterator @!i (mem/direct-byte-buffer k))
+    (iterator->key ^RocksIterator @!i))
 
   (next [this]
-    (.next ^RocksIterator @i)
-    (iterator->key ^RocksIterator @i))
+    (.next ^RocksIterator @!i)
+    (iterator->key ^RocksIterator @!i))
 
   (prev [this]
-    (.prev ^RocksIterator @i)
-    (iterator->key ^RocksIterator @i))
+    (.prev ^RocksIterator @!i)
+    (iterator->key ^RocksIterator @!i))
 
   (value [this]
-    (mem/as-buffer (.value ^RocksIterator @i)))
+    (mem/as-buffer (.value ^RocksIterator @!i)))
 
   Closeable
   (close [this]
-    (when @i
-      (.close ^RocksIterator @i))))
+    (when @!i
+      (.close ^RocksIterator @!i))))
 
 (defrecord RocksKvSnapshot [^RocksDB db ^ReadOptions read-options ^java.util.List column-family-handles snapshot]
   kv/KvSnapshot
   (new-iterator [this]
-    (->RocksKvIterator (atom nil) db column-family-handles read-options))
+    (->RocksKvIterator (volatile! nil) db column-family-handles read-options))
 
   (get-value [this k]
     (some-> (.get db
@@ -96,15 +97,16 @@
 
   (store [this kvs]
     (with-open [wb (WriteBatch.)]
-      (doseq [[k v] kvs]
+      (doseq [[k v] kvs] ; avoid laziness?
         (if v
           (do
-            (let [kbb (mem/direct-byte-buffer k)
-                  cfh (->column-family-handle this kbb)]
+            (let [kbb (mem/direct-byte-buffer k) #_(.byteBuffer (mem/as-buffer k))
+                  i (wash-cfi (column-family-id kbb))
+                  cfh (->column-family-handle this i)]
               (.put wb
                     cfh
-                    kbb (mem/direct-byte-buffer v))))
-          (.remove wb (mem/direct-byte-buffer k))))
+                    kbb (mem/direct-byte-buffer v) #_(.byteBuffer (mem/as-buffer v)))))
+          (.remove wb (mem/direct-byte-buffer k) #_(.byteBuffer (mem/as-buffer k)))))
       (.write db write-options wb)))
 
   (compact [_]
@@ -194,18 +196,53 @@
             (.setTableFormatConfig cfo (doto (BlockBasedTableConfig.)
                                          (.setBlockCache block-cache))))
 
-        bloom-filter (BloomFilter. 8 false)
+        bloom-filter (BloomFilter. 10 false)
         _ (.setTableFormatConfig cfo (doto (BlockBasedTableConfig.)
-                                       (.setFilterPolicy bloom-filter)))
+                                       (.setFilterPolicy bloom-filter)
+                                      #_ (.setWholeKeyFiltering false)))
+
+
+        ;;TODO use these only for entityasof index, and implement new entity-exists? index-store fn, rely on rocks' bloom filter but what about lmdb
+                                        ;setCacheIndexAndFilterBlocksWithHighPriority
+                                        ;setCacheIndexAndFilterBlocks
+
+     ;   .setCacheIndexAndFilterBlocks(true)
+     ;   .setPinL0FilterAndIndexBlocksInCache(true)
+     ;   .setCacheIndexAndFilterBlocksWithHighPriority(true)
+     ;   // default is binary search, but all of our scans are prefix based which is a good use
+     ;;   // case for efficient hashing
+     ;   .setIndexType(IndexType.kHashSearch)
+     ;   .setDataBlockIndexType(DataBlockIndexType.kDataBlockBinaryAndHash)
+     ;   .setDataBlockHashTableUtilRatio(0.5);
 
         _ (.useFixedLengthPrefixExtractor cfo 1)
+        ;; also explore
+        ;;  https://github.com/camunda/zeebe/issues/4002
+        ;; kHashSearch and kDataBlockBinaryAndHash
+        ;; .setMaxManifestFileSize(256 * 1024 * 1024L)
+        ;; .setBytesPerSync(4 * 1024 * 1024L)
 
+        ;; .memtablePrefixBloomSizeRatio 0.1
+
+        ;; fixedlength = 41 for ave, aev !!
+        ;; and likewise 21 for av ae
+        ;; as-of probably would be 21 too
+
+        ;; .setEnv(Env.getDefault().setBackgroundThreads(configuration.getBackgroundThreadCount()))
+
+        ;; setMinWriteBufferNumberToMerge(int)
+
+        ;; setMaxOpenFiles -1
+
+        ;; setBloomLocality <6 (default number of probes)
+
+        cfc 20
         column-family-descriptors;; [(ColumnFamilyDescriptor. RocksDB/DEFAULT_COLUMN_FAMILY cfo)]
         (into [(ColumnFamilyDescriptor. RocksDB/DEFAULT_COLUMN_FAMILY cfo)]
-                                        (for [n (range 20)]
+                                        (for [n (range cfc)]
                                           (ColumnFamilyDescriptor. (byte-array [(byte n)]))))
 
-        column-family-handles (java.util.ArrayList.)
+        column-family-handles (java.util.Vector. cfc)
 
         stats (when metrics (doto (Statistics.) (.setStatsLevel (StatsLevel/EXCEPT_DETAILED_TIMERS))))
         opts (doto (or ^DBOptions db-options (DBOptions.))

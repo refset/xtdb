@@ -1004,7 +1004,7 @@
                       (conj (MapEntry/create (encode-hash-cache-key-to nil value-buffer eid-value-buffer)
                                              (mem/->nippy-buffer v))))))))))
 
-(defrecord KvIndexStoreTx [persistent-kv-store transient-kv-store tx fork-at !evicted-eids thread-mgr cav-cache canonical-buffer-cache stats-kvs-cache]
+(defrecord KvIndexStoreTx [persistent-kv-store transient-kv-store tx fork-at !evicted-eids !seen-eids thread-mgr cav-cache canonical-buffer-cache stats-kvs-cache]
   db/IndexStoreTx
   (index-docs [_ content-idx-kvs]
     (with-open [transient-kv-snapshot (kv/new-snapshot transient-kv-store)]
@@ -1068,7 +1068,12 @@
 
             {:tombstones tombstones})))))
 
+
+  (maybe-seen-eid? [_ eid]
+    false #_(contains? @!seen-eids eid))
+
   (index-entity-txs [_ entity-txs]
+    (swap! !seen-eids into (map #(.eid ^EntityTx %) entity-txs))
     (kv/store transient-kv-store
               (->> (mapcat etx->kvs entity-txs)
                    (sort-by key mem/buffer-comparator))))
@@ -1113,7 +1118,7 @@
       (kv/store transient-kv-store
                 [(MapEntry/create (encode-tx-time-mapping-key-to nil tx-time tx-id) mem/empty-buffer)])
       (->KvIndexStoreTx kv-store transient-kv-store tx fork-at
-                        (atom #{}) thread-mgr
+                        (atom #{}) (atom #{}) thread-mgr
                         (nop-cache/->nop-cache {}) (nop-cache/->nop-cache {}) stats-kvs-cache)))
 
   (store-index-meta [_ k v]

@@ -106,4 +106,53 @@
      (time
       (tpch/run-query (xt/db (xtdb-node))
                       (-> q
-                          (assoc :timeout 120000)))))))
+                          (assoc :timeout 120000))))))
+
+  (remove-ns 'dev)
+
+  (require 'clojure.spec.alpha)
+  (clojure.spec.alpha/check-asserts false)
+
+  (def sf 0.0125)
+
+  (do (def n (xt/start-node {:xtdb/index-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                                           :db-dir (io/file "/tmp/i")}}
+                             :xtdb/document-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                                              :db-dir (io/file (str "/tmp/d" sf))}}
+                             :xtdb/tx-log {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                                      :db-dir (io/file (str  "/tmp/t" sf))}}}))
+      (time (xt/sync n)))
+
+  (do (.close n) (clojure.java.shell/sh "rm" "-rf" "/tmp/i"))
+
+  (time (tpch/load-docs! n sf 2000))
+
+  (xt/status n)
+
+  (xt/attribute-stats n)
+
+  (def n (xt/start-node {}))
+
+  (with-open [n (xt/start-node {})]
+    (xt/submit-tx n [[::xt/put {:xt/id :put-building-fn
+                                :xt/fn '(fn [ctx i]
+                                          [[:xtdb.api/put {:xt/id (str "building" i)}]])}]
+                     [::xt/put {:xt/id :add-kvs-fn
+
+                                :xt/fn '(fn [ctx eid & kvs]
+                                          [[:xtdb.api/put (apply assoc (xtdb.api/entity (xtdb.api/db ctx) eid) kvs)]])}]
+                     [::xt/put {:xt/id :conj-persons-fn
+                                :xt/fn '(fn [ctx eid & persons]
+                                          [[:xtdb.api/put (update (xtdb.api/entity (xtdb.api/db ctx) eid) :persons #(conj % persons))]])}]
+                     [::xt/fn :put-building-fn 1]])
+
+    (xt/sync n)
+    (xt/submit-tx n [[::xt/fn :add-kvs-fn "building1" :a 1 :persons #{}]])
+    (xt/sync n)
+    (xt/submit-tx n [[::xt/fn :conj-persons-fn "building1" "alice" "bob"]])
+    (xt/sync n)
+    (clojure.pprint/pprint (map #(select-keys % [::xt/tx-id ::xt/valid-time ::xt/doc])
+                                (xt/entity-history (xt/db n) "building1" :asc {:with-docs? true}))))
+
+  (#:xtdb.api{:tx-time #inst "2022-05-21T21:03:00.263-00:00", :tx-id 0, :valid-time #inst "2022-05-21T21:03:00.263-00:00", :content-hash #xtdb/id "a2f569731ea956c5d4babeaedbf708ebef3c9efc", :doc #:xt{:id "building1"}})
+  )

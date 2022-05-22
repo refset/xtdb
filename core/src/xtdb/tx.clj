@@ -102,11 +102,14 @@
         ->new-entity-tx (fn [vt]
                           (c/->EntityTx eid vt tx-time tx-id content-hash))
 
-        start-valid-time (or start-valid-time valid-time tx-time)]
+        start-valid-time (or start-valid-time valid-time tx-time)
+        maybe-seen-eid (db/maybe-seen-eid? index-snapshot eid)]
 
     (if end-valid-time
       (when-not (= start-valid-time end-valid-time)
-        (let [entity-history (db/entity-history index-snapshot eid :desc {:start-valid-time end-valid-time})]
+        (let [entity-history (if maybe-seen-eid
+                               (db/entity-history index-snapshot eid :desc {:start-valid-time end-valid-time})
+                               [])]
           (into (->> (cons start-valid-time
                            (->> (map etx->vt entity-history)
                                 (take-while #(neg? (compare start-valid-time %)))))
@@ -120,7 +123,7 @@
                    (c/->EntityTx eid end-valid-time tx-time tx-id c/nil-id-buffer))])))
 
       (->> (cons start-valid-time
-                 (when-let [visible-entity (some-> (db/entity-as-of index-snapshot eid start-valid-time tx-id)
+                 (when-let [visible-entity (some-> (when maybe-seen-eid (db/entity-as-of index-snapshot eid start-valid-time tx-id))
 
                                                    (select-keys [:tx-time :tx-id :content-hash]))]
                    (->> (db/entity-history index-snapshot eid :asc {:start-valid-time start-valid-time})
@@ -139,15 +142,18 @@
 (defmethod index-tx-event :crux.tx/match [[_op k v at-valid-time :as match-op]
                                           {::xt/keys [tx-time tx-id valid-time]}
                                           {:keys [index-snapshot]}]
-  (let [content-hash (db/entity-as-of-resolver index-snapshot
-                                               (c/new-id k)
-                                               (or at-valid-time valid-time tx-time)
-                                               tx-id)
-        match? (= (c/new-id content-hash) (c/new-id v))]
-    (when-not match?
-      (log/debug "match failure:" (xio/pr-edn-str match-op) "was:" (c/new-id content-hash)))
+  (let [eid (c/new-id k)]
+    (let [content-hash-id (if (db/maybe-seen-eid? index-snapshot eid)
+                            (c/new-id (db/entity-as-of-resolver index-snapshot
+                                                                eid
+                                                                (or at-valid-time valid-time tx-time)
+                                                                tx-id))
+                            c/nil-id-buffer)
+          match? (= content-hash-id (c/new-id v))]
+      (when-not match?
+        (log/debug "match failure:" (xio/pr-edn-str match-op) "was:" content-hash-id))
 
-    {:abort? (not match?)}))
+      {:abort? (not match?)})))
 
 (defmethod index-tx-event :crux.tx/cas [[_op k old-v new-v at-valid-time :as cas-op]
                                         {::xt/keys [tx-time tx-id valid-time] :as tx}
@@ -509,10 +515,10 @@
               (set-ingester-error! t)
               (throw t)))))
 
-      (let [txs-docs-fetch-queue (LinkedBlockingQueue. 1)
-            txs-docs-encoder-queue (LinkedBlockingQueue. 1)
-            txs-process-queue (LinkedBlockingQueue. 1)
-            stats-queue (LinkedBlockingQueue. 1)
+      (let [txs-docs-fetch-queue (LinkedBlockingQueue. 4)
+            txs-docs-encoder-queue (LinkedBlockingQueue. 4)
+            txs-process-queue (LinkedBlockingQueue. 4)
+            stats-queue (LinkedBlockingQueue. 4)
 
             txs-doc-fetch-fn (fn [txs]
                                (let [docs (strict-fetch-docs document-store
@@ -585,14 +591,15 @@
                                   (when (Thread/interrupted)
                                     (throw (InterruptedException.)))
 
-                                  (.put txs-docs-fetch-queue txs)
+                                  (doseq [txs-batch (partition-all 5 txs)]
+                                    (.put txs-docs-fetch-queue txs-batch))
 
                                   (catch Throwable t
                                     (set-ingester-error! t)
                                     (throw t)))))]
 
         (start-poller! docs-fetcher-thread-factory 1 txs-docs-fetch-queue job txs-doc-fetch-fn set-ingester-error!)
-        (start-poller! docs-encoder-thread-factory 1 txs-docs-encoder-queue job txs-doc-encoder-fn set-ingester-error!)
+        (start-poller! docs-encoder-thread-factory 4 txs-docs-encoder-queue job txs-doc-encoder-fn set-ingester-error!)
         (start-poller! txs-processor-thread-factory 1 txs-process-queue job txs-process-fn set-ingester-error!)
         (start-poller! stats-processor-thread-factory 1 stats-queue job stats-fn set-ingester-error!)
 

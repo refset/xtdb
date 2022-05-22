@@ -12,6 +12,7 @@
 (defprotocol IndexStoreTx
   (index-docs [this encoded-docs])
   (unindex-eids [this eids])
+  (maybe-seen-eid? [this eid])
   (index-entity-txs [this entity-txs])
   (commit-index-tx [this])
   (abort-index-tx [this]))
