@@ -95,7 +95,7 @@
   java.io.Closeable
   (close [_] (xio/try-close index-snapshot)))
 
-(defrecord MergedIndexSnapshot [persistent-index-snapshot transient-index-snapshot evicted-eids]
+(defrecord MergedIndexSnapshot [persistent-index-snapshot transient-index-snapshot evicted-eids maybe-seen-eids]
   db/IndexSnapshot
   (av [_ a min-v]
     (merge-seqs (db/av persistent-index-snapshot a min-v)
@@ -156,7 +156,13 @@
   (open-nested-index-snapshot ^java.io.Closeable [_]
     (->MergedIndexSnapshot (db/open-nested-index-snapshot persistent-index-snapshot)
                            (db/open-nested-index-snapshot transient-index-snapshot)
-                           evicted-eids))
+                           evicted-eids
+                           maybe-seen-eids))
+
+  (maybe-seen-eid? [_ eid]
+    #_(or (db/maybe-seen-eid? persistent-index-snapshot eid)
+        (db/maybe-seen-eid? transient-index-snapshot eid))
+    true)
 
   db/ValueSerde
   (decode-value [_ value-buffer]

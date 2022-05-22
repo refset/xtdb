@@ -12,7 +12,6 @@
 (defprotocol IndexStoreTx
   (index-docs [this encoded-docs])
   (unindex-eids [this eids])
-  (maybe-seen-eid? [this eid])
   (index-entity-txs [this entity-txs])
   (commit-index-tx [this])
   (abort-index-tx [this]))
@@ -58,7 +57,8 @@
   (entity-as-of ^xtdb.codec.EntityTx [this eid valid-time tx-id])
   (entity-history [this eid sort-order opts])
   (resolve-tx [this tx])
-  (open-nested-index-snapshot ^java.io.Closeable [this]))
+  (open-nested-index-snapshot ^java.io.Closeable [this])
+  (maybe-seen-eid? [this eid]))
 
 (defprotocol TxLog
   (submit-tx [this tx-events] [this tx-events opts])
