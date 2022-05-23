@@ -5,16 +5,18 @@
             [xtdb.kv.mutable-kv :as mutable-kv]
             [xtdb.kv.lazy-mutable-kv :as lazy-kv])
   (:import clojure.lang.ISeq
-           java.io.Closeable))
+           java.io.Closeable
+           org.agrona.DirectBuffer))
 
-(deftype CodecAwareLazyMutableKvIterator [^xtdb.kv.KvStore kv ^xtdb.kv.KvStore as-of-kv !i]
+(deftype CodecAwareLazyMutableKvIterator [kv-snapshot as-of-kv-snapshot !i]
   kv/KvIterator
   (seek [_ k]
-    (let [snapshot (if (#{c/entity+vt+tt+tx-id->content-hash-index-id
-                          c/entity+z+tx-id->content-hash-index-id}
-                        (aget (mem/->on-heap k) 0))
-                     (kv/new-snapshot as-of-kv)
-                     (kv/new-snapshot kv))]
+    (let [snapshot (case (.getByte ^DirectBuffer k 0)
+                     c/entity+vt+tt+tx-id->content-hash-index-id
+                     as-of-kv-snapshot
+                     c/entity+z+tx-id->content-hash-index-id
+                     as-of-kv-snapshot
+                     kv-snapshot)]
       (reset! !i (kv/new-iterator snapshot))
       (kv/seek @!i k)))
 
@@ -30,17 +32,17 @@
   Closeable
   (close [_]))
 
-(deftype CodecAwareLazyMutableKvSnapshot [^xtdb.kv.KvStore kv ^xtdb.kv.KvStore as-of-kv]
+(deftype CodecAwareLazyMutableKvSnapshot [kv-snapshot as-of-kv-snapshot]
   kv/KvSnapshot
 
   (new-iterator [_]
-    (->CodecAwareLazyMutableKvIterator kv as-of-kv (atom nil)))
+    (->CodecAwareLazyMutableKvIterator kv-snapshot as-of-kv-snapshot (atom nil)))
 
   (get-value [_ k]
-    (kv/get-value (kv/new-snapshot kv) k))
+    (kv/get-value kv-snapshot k))
 
   ISeq
-  (seq [_] (seq (kv/new-snapshot kv)))
+  (seq [_] (seq kv-snapshot))
 
   Closeable
   (close [_]))
@@ -48,13 +50,13 @@
 (deftype CodecAwareLazyKvStore [^xtdb.kv.KvStore kv ^xtdb.kv.KvStore as-of-kv]
   kv/KvStore
   (new-snapshot ^java.io.Closeable [_]
-    (->CodecAwareLazyMutableKvSnapshot kv as-of-kv))
+    (->CodecAwareLazyMutableKvSnapshot (kv/new-snapshot kv) (kv/new-snapshot as-of-kv)))
 
   (store [_ kvs]
     (kv/store kv kvs)
     (kv/store as-of-kv
               (into []
-                    (filter #(case (.get (mem/direct-byte-buffer (.key ^clojure.lang.MapEntry %)) 0)
+                    (filter #(case (.getByte ^DirectBuffer (.key ^clojure.lang.MapEntry %) 0)
                                c/entity+vt+tt+tx-id->content-hash-index-id
                                true
                                c/entity+z+tx-id->content-hash-index-id
@@ -74,8 +76,9 @@
 
 (comment
   (let [kv (->codec-aware-lazy-mutable-kv-store)]
-    (kv/store kv [[(.getBytes "9sad1") (.getBytes "sadv")]
-                  [(.getBytes "sad2") (.getBytes "sadx")]])
+    (kv/store kv [(clojure.lang.MapEntry. (.getBytes "sad1") (.getBytes "sadv"))
+                  (clojure.lang.MapEntry. (.getBytes "9sad1") (.getBytes "sadv"))]
+                  )
     (kv/get-value (kv/new-snapshot kv)(.getBytes "9sad1"))
     (kv/count-keys kv))
 
