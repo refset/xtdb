@@ -11,7 +11,8 @@
             [xtdb.hyper-log-log :as hll]
             [xtdb.io :as xio]
             [xtdb.kv :as kv]
-            [xtdb.kv.mutable-kv :as mut-kv]
+            [xtdb.kv.codec-aware-lazy-mutable-kv :as codec-lazy-kv]
+            [xtdb.kv.mutable-kv :as mutable-kv]
             [xtdb.memory :as mem]
             [xtdb.morton :as morton]
             [xtdb.status :as status]
@@ -1109,7 +1110,7 @@
 
   (begin-index-tx [_ tx fork-at]
     (let [{::xt/keys [tx-id tx-time]} tx
-          transient-kv-store (mut-kv/->mutable-kv-store)]
+          transient-kv-store (codec-lazy-kv/->codec-aware-lazy-mutable-kv-store)]
       (kv/store transient-kv-store
                 [(MapEntry/create (encode-tx-time-mapping-key-to nil tx-time tx-id) mem/empty-buffer)])
       (->KvIndexStoreTx kv-store transient-kv-store tx fork-at
