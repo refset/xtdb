@@ -23,7 +23,7 @@
 (set! *unchecked-math* :warn-on-boxed)
 
 (def ^:const column-family-defs [c/entity+vt+tt+tx-id->content-hash-index-id
-                                   c/entity+z+tx-id->content-hash-index-id])
+                                 c/entity+z+tx-id->content-hash-index-id])
 
 (defn ^ColumnFamilyHandle ->column-family-handle [{:keys [^Map column-family-handles
                                                           ^ColumnFamilyHandle default-column-family]} k]
@@ -79,7 +79,10 @@
     (let [snapshot (.getSnapshot db)]
       (->RocksKvSnapshot db
                          (doto (ReadOptions.)
-                           (.setSnapshot snapshot))
+                           (.setSnapshot snapshot)
+                           (.setTotalOrderSeek false)
+                           (.setPrefixSameAsStart true)
+                           )
                          column-family-handles
                          default-column-family
                          snapshot)))
@@ -190,19 +193,19 @@
               (.setCompressionType CompressionType/LZ4_COMPRESSION)
               (.setBottommostCompressionType CompressionType/ZSTD_COMPRESSION))
 
-        bloom-filter (BloomFilter. 10 false)
+        bloom-filter (BloomFilter. 4 false)
         _ (when block-cache
             (.setTableFormatConfig cfo (doto (BlockBasedTableConfig.)
                                          (.setBlockCache block-cache)
-                                         ;; (.setFilterPolicy bloom-filter)
-                                         ;; (.setWholeKeyFiltering false)
-                                         ;; (.setCacheIndexAndFilterBlocks true)
-                                         ;; (.setPinL0FilterAndIndexBlocksInCache true)
-                                         ;; (.setCacheIndexAndFilterBlocksWithHighPriority true)
+                                          (.setFilterPolicy bloom-filter)
+                                          (.setWholeKeyFiltering false)
+                                          (.setCacheIndexAndFilterBlocks true)
+                                          (.setPinL0FilterAndIndexBlocksInCache true)
+                                          (.setCacheIndexAndFilterBlocksWithHighPriority true)
                                          )))
 
-        ;; _ (.useFixedLengthPrefixExtractor cfo 21)
-        ;; _ (.setMemtablePrefixBloomSizeRatio cfo 0.1)
+        _ (.useFixedLengthPrefixExtractor cfo 21)
+        _ (.setMemtablePrefixBloomSizeRatio cfo 0.1)
 
         column-family-descriptors
         (into [(ColumnFamilyDescriptor. RocksDB/DEFAULT_COLUMN_FAMILY default-cfo)]
