@@ -37,7 +37,7 @@
   kv/KvIterator
   (seek [this k]
     (when-not @i
-      (reset! i (.newIterator db (->column-family-handle this (.getByte ^org.agrona.DirectBuffer k 0)) read-options)))
+      (reset! i (.newIterator db (->column-family-handle this (.getByte ^org.agrona.DirectBuffer (mem/as-buffer k) 0)) read-options)))
     (.seek ^RocksIterator @i (mem/direct-byte-buffer k))
     (iterator->key ^RocksIterator @i))
 
@@ -64,7 +64,7 @@
 
   (get-value [this k]
     (some-> (.get db
-                  (->column-family-handle this (.getByte ^org.agrona.DirectBuffer k 0))
+                  (->column-family-handle this (.getByte ^org.agrona.DirectBuffer (mem/as-buffer k) 0))
                   read-options (mem/->on-heap k))
             (mem/as-buffer)))
 
