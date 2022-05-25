@@ -11,45 +11,61 @@
             [xtdb.codec :as c])
   (:import (java.io Closeable File)
            (java.nio.file Files Path)
+           java.util.Map
+           java.util.List
            java.nio.file.attribute.FileAttribute
-           (org.rocksdb BlockBasedTableConfig Checkpoint CompressionType FlushOptions LRUCache
+           (org.rocksdb BlockBasedTableConfig Checkpoint CompressionType FlushOptions LRUCache BloomFilter
                         Options ReadOptions RocksDB RocksIterator
+                        DBOptions
+                        ColumnFamilyOptions ColumnFamilyDescriptor ColumnFamilyHandle
                         WriteBatch WriteOptions Statistics StatsLevel)))
 
 (set! *unchecked-math* :warn-on-boxed)
 
-(defn- iterator->key [^RocksIterator i]
+(def ^:const column-family-defs [c/entity+vt+tt+tx-id->content-hash-index-id
+                                   c/entity+z+tx-id->content-hash-index-id])
+
+(defn ^ColumnFamilyHandle ->column-family-handle [{:keys [^Map column-family-handles
+                                                          ^ColumnFamilyHandle default-column-family]} k]
+  (get column-family-handles k default-column-family))
+
+(defn- iterator->key [^RocksIterator i ]
   (when (.isValid i)
     (mem/as-buffer (.key i))))
 
-(defrecord RocksKvIterator [^RocksIterator i]
+(defrecord RocksKvIterator [i ^RocksDB db ^List column-family-handles, ^ColumnFamilyHandle default-column-family, ^ReadOptions read-options]
   kv/KvIterator
   (seek [this k]
-    (.seek i (mem/direct-byte-buffer k))
-    (iterator->key i))
+    (when-not @i
+      (reset! i (.newIterator db (->column-family-handle this (.getByte ^org.agrona.DirectBuffer k 0)) read-options)))
+    (.seek ^RocksIterator @i (mem/direct-byte-buffer k))
+    (iterator->key ^RocksIterator @i))
 
   (next [this]
-    (.next i)
-    (iterator->key i))
+    (.next ^RocksIterator @i)
+    (iterator->key ^RocksIterator @i))
 
   (prev [this]
-    (.prev i)
-    (iterator->key i))
+    (.prev ^RocksIterator @i)
+    (iterator->key ^RocksIterator @i))
 
   (value [this]
-    (mem/as-buffer (.value i)))
+    (mem/as-buffer (.value ^RocksIterator @i)))
 
   Closeable
   (close [this]
-    (.close i)))
+    (when @i
+      (.close ^RocksIterator @i))))
 
-(defrecord RocksKvSnapshot [^RocksDB db ^ReadOptions read-options snapshot]
+(defrecord RocksKvSnapshot [^RocksDB db, ^ReadOptions read-options, ^List column-family-handles, ^ColumnFamilyHandle default-column-family, snapshot]
   kv/KvSnapshot
   (new-iterator [this]
-    (->RocksKvIterator (.newIterator db read-options)))
+    (->RocksKvIterator (atom nil) db column-family-handles default-column-family read-options))
 
   (get-value [this k]
-    (some-> (.get db read-options (mem/->on-heap k))
+    (some-> (.get db
+                  (->column-family-handle this (.getByte ^org.agrona.DirectBuffer k 0))
+                  read-options (mem/->on-heap k))
             (mem/as-buffer)))
 
   Closeable
@@ -57,20 +73,27 @@
     (.close read-options)
     (.releaseSnapshot db snapshot)))
 
-(defrecord RocksKv [^RocksDB db, ^WriteOptions write-options, ^Options options, ^Closeable metrics, ^Closeable cp-job, db-dir]
+(defrecord RocksKv [^RocksDB db, ^WriteOptions write-options, ^Options options, ^Closeable metrics, ^Closeable cp-job, db-dir, ^Map column-family-handles, ^ColumnFamilyHandle default-column-family]
   kv/KvStore
   (new-snapshot [_]
     (let [snapshot (.getSnapshot db)]
       (->RocksKvSnapshot db
                          (doto (ReadOptions.)
                            (.setSnapshot snapshot))
+                         column-family-handles
+                         default-column-family
                          snapshot)))
 
-  (store [_ kvs]
+  (store [this kvs]
     (with-open [wb (WriteBatch.)]
       (doseq [[k v] kvs]
         (if v
-          (.put wb (mem/direct-byte-buffer k) (mem/direct-byte-buffer v))
+          (do
+            (let [kbb (mem/direct-byte-buffer k)
+                  cfh (->column-family-handle this (.get kbb 0))]
+              (.put wb
+                    cfh
+                    kbb (mem/direct-byte-buffer v))))
           (.remove wb (mem/direct-byte-buffer k))))
       (.write db write-options wb)))
 
@@ -145,30 +168,78 @@
   (when checkpointer
     (cp/try-restore checkpointer (.toFile db-dir) cp-format))
 
-  (let [stats (when metrics (doto (Statistics.) (.setStatsLevel (StatsLevel/EXCEPT_DETAILED_TIMERS))))
-        opts (doto (or ^Options db-options (Options.))
+  (let [ ;; https://github.com/facebook/rocksdb/blob/master/java/src/main/java/org/rocksdb/RocksDB.java
+        ;; https://stackoverflow.com/questions/52504792/how-to-refer-to-a-particular-column-family-in-put-and-get-in-rocksdb-with-java-c
+
+        ;; final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
+        ;;                 new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts),
+        ;;                 new ColumnFamilyDescriptor("my-first-columnfamily".getBytes(), cfOpts)
+        ;;         );
+
+        default-cfo (doto (ColumnFamilyOptions.)
+                      (.optimizeUniversalStyleCompaction )
+                      (.setCompressionType CompressionType/LZ4_COMPRESSION)
+                      (.setBottommostCompressionType CompressionType/ZSTD_COMPRESSION))
+
+        _ (when block-cache
+            (.setTableFormatConfig default-cfo (doto (BlockBasedTableConfig.)
+                                                 (.setBlockCache block-cache))))
+
+        cfo (doto (ColumnFamilyOptions.)
+              (.optimizeUniversalStyleCompaction )
+              (.setCompressionType CompressionType/LZ4_COMPRESSION)
+              (.setBottommostCompressionType CompressionType/ZSTD_COMPRESSION))
+
+        bloom-filter (BloomFilter. 10 false)
+        _ (when block-cache
+            (.setTableFormatConfig cfo (doto (BlockBasedTableConfig.)
+                                         (.setBlockCache block-cache)
+                                         ;; (.setFilterPolicy bloom-filter)
+                                         ;; (.setWholeKeyFiltering false)
+                                         ;; (.setCacheIndexAndFilterBlocks true)
+                                         ;; (.setPinL0FilterAndIndexBlocksInCache true)
+                                         ;; (.setCacheIndexAndFilterBlocksWithHighPriority true)
+                                         )))
+
+        ;; _ (.useFixedLengthPrefixExtractor cfo 21)
+        ;; _ (.setMemtablePrefixBloomSizeRatio cfo 0.1)
+
+        column-family-descriptors
+        (into [(ColumnFamilyDescriptor. RocksDB/DEFAULT_COLUMN_FAMILY default-cfo)]
+              (for [c column-family-defs]
+                (ColumnFamilyDescriptor. (byte-array [(byte c)]))))
+
+        column-family-handles-vector (java.util.Vector.)
+
+        stats (when metrics (doto (Statistics.) (.setStatsLevel (StatsLevel/EXCEPT_DETAILED_TIMERS))))
+        opts (doto (or ^DBOptions db-options (DBOptions.))
                (cond-> metrics (.setStatistics stats))
-               (.setCompressionType CompressionType/LZ4_COMPRESSION)
-               (.setBottommostCompressionType CompressionType/ZSTD_COMPRESSION)
-               (.setCreateIfMissing true))
-        opts (cond-> opts
-               (and block-cache (nil? (.tableFormatConfig opts))) (.setTableFormatConfig (doto (BlockBasedTableConfig.)
-                                                                                           (.setBlockCache block-cache))))
+               (.setCreateIfMissing true)
+               (.setCreateMissingColumnFamilies true))
 
         db (try
              (RocksDB/open opts (-> (Files/createDirectories db-dir (make-array FileAttribute 0))
                                     (.toAbsolutePath)
-                                    (str)))
+                                    (str))
+                           column-family-descriptors
+                           column-family-handles-vector)
              (catch Throwable t
                (.close opts)
                (throw t)))
         metrics (when metrics (metrics db stats))
+
+        column-family-handles (into {}
+                                    (for [[^int i cfd] (map-indexed vector column-family-defs)]
+                                      [cfd (.get column-family-handles-vector (inc i))]))
+
         kv-store (map->RocksKv {:db-dir db-dir
                                 :options opts
                                 :db db
                                 :metrics metrics
                                 :write-options (doto (WriteOptions.)
                                                  (.setSync (boolean sync?))
-                                                 (.setDisableWAL (boolean disable-wal?)))})]
+                                                 (.setDisableWAL (boolean disable-wal?)))
+                                :column-family-handles column-family-handles
+                                :default-column-family (first column-family-handles-vector)})]
     (cond-> kv-store
       checkpointer (assoc :cp-job (cp/start checkpointer kv-store {::cp/cp-format cp-format})))))
