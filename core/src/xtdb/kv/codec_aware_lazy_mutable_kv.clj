@@ -52,14 +52,15 @@
     (->CodecAwareLazyMutableKvSnapshot (kv/new-snapshot kv) (kv/new-snapshot as-of-kv)))
 
   (store [_ kvs]
-    (kv/store kv kvs)
-    (when (condp = (.getByte ^DirectBuffer (.key ^clojure.lang.MapEntry (first kvs)) 0)
-            c/entity+vt+tt+tx-id->content-hash-index-id
-            true
-            c/entity+z+tx-id->content-hash-index-id
-            true
-            false)
-      (kv/store as-of-kv kvs)))
+    (when (seq kvs)
+      (kv/store kv kvs)
+      (when (condp = (.getByte ^DirectBuffer (.key ^clojure.lang.MapEntry (first kvs)) 0)
+              c/entity+vt+tt+tx-id->content-hash-index-id
+              true
+              c/entity+z+tx-id->content-hash-index-id
+              true
+              false)
+        (kv/store as-of-kv kvs))))
 
   (fsync [_])
   (compact [_])
