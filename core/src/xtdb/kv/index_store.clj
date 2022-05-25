@@ -982,39 +982,34 @@
             (java.util.stream.Collectors/toList)))
 
 (defn- ->content-idx-kvs [docs]
-  (let [hash-cache-kvs (java.util.ArrayList.)
-        av-kvs (java.util.ArrayList.)
-        ave-kvs (java.util.ArrayList.)
-        ae-kvs (java.util.ArrayList.)
-        ecav-kvs (java.util.ArrayList.)
-        attr-bufs (->> (into #{} (mapcat keys) (vals docs))
+  (let [attr-bufs (->> (into #{} (mapcat keys) (vals docs))
                        (into {} (map (juxt identity c/->id-buffer))))]
-    (.addAll hash-cache-kvs (for [[a a-buf] attr-bufs]
-                              (MapEntry/create (encode-hash-cache-key-to nil a-buf) (mem/->nippy-buffer a))))
-    (doall
-     (for [[content-hash doc] docs
-           :let [id (:crux.db/id doc)
-                 eid-value-buffer (c/->value-buffer id)
-                 content-hash (c/->id-buffer content-hash)]]
-       (do
-         (.add hash-cache-kvs (MapEntry/create (encode-hash-cache-key-to nil (c/->id-buffer id) eid-value-buffer)
-                                               (mem/->nippy-buffer id)))
-         (doall (for [[a v] doc
-                      :let [a (get attr-bufs a)]
-                      [v idxs] (val-idxs v)
-                      :let [value-buffer (c/->value-buffer v)]
-                      :when (pos? (.capacity value-buffer))]
-                  (do
-                    (.add av-kvs (MapEntry/create (encode-av-key-to nil a value-buffer) mem/empty-buffer))
-                    (.add ave-kvs (MapEntry/create (encode-ave-key-to nil a value-buffer eid-value-buffer) mem/empty-buffer))
-                    (.add ae-kvs (MapEntry/create (encode-ae-key-to nil a eid-value-buffer) mem/empty-buffer))
-                    (.add ecav-kvs (MapEntry/create (encode-ecav-key-to nil eid-value-buffer content-hash a value-buffer)
-                                                    (encode-ecav-value idxs)))
-                    (when (not (c/can-decode-value-buffer? value-buffer))
-                      (.add hash-cache-kvs (MapEntry/create (encode-hash-cache-key-to nil value-buffer eid-value-buffer)
-                                                            (mem/->nippy-buffer v))))))))))
-    (apply array-list-concat (map (partial sort-by key mem/buffer-comparator)
-                                  [hash-cache-kvs ave-kvs ecav-kvs av-kvs ae-kvs])))) ;; codec order
+    (->> (into (vec (for [[a a-buf] attr-bufs]
+                      (MapEntry/create (encode-hash-cache-key-to nil a-buf) (mem/->nippy-buffer a))))
+
+               cat
+
+               (for [[content-hash doc] docs
+                     :let [id (:crux.db/id doc)
+                           eid-value-buffer (c/->value-buffer id)
+                           content-hash (c/->id-buffer content-hash)]]
+                 (into [(MapEntry/create (encode-hash-cache-key-to nil (c/->id-buffer id) eid-value-buffer)
+                                         (mem/->nippy-buffer id))]
+                       cat
+                       (for [[a v] doc
+                             :let [a (get attr-bufs a)]
+                             [v idxs] (val-idxs v)
+                             :let [value-buffer (c/->value-buffer v)]
+                             :when (pos? (.capacity value-buffer))]
+                         (cond-> [(MapEntry/create (encode-av-key-to nil a value-buffer) mem/empty-buffer)
+                                  (MapEntry/create (encode-ave-key-to nil a value-buffer eid-value-buffer) mem/empty-buffer)
+                                  (MapEntry/create (encode-ae-key-to nil a eid-value-buffer) mem/empty-buffer)
+                                  (MapEntry/create (encode-ecav-key-to nil eid-value-buffer content-hash a value-buffer)
+                                                   (encode-ecav-value idxs))]
+                           (not (c/can-decode-value-buffer? value-buffer))
+                           (conj (MapEntry/create (encode-hash-cache-key-to nil value-buffer eid-value-buffer)
+                                                  (mem/->nippy-buffer v))))))))
+         (sort-by key mem/buffer-comparator))))
 
 (defrecord KvIndexStoreTx [persistent-kv-store transient-kv-store tx fork-at !evicted-eids thread-mgr cav-cache canonical-buffer-cache stats-kvs-cache]
   db/IndexStoreTx
