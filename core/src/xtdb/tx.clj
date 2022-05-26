@@ -118,7 +118,7 @@
                    (c/->EntityTx eid end-valid-time tx-time tx-id c/nil-id-buffer))])))
 
       (->> (cons start-valid-time
-                 (when-let [visible-entity (some-> (db/entity-as-of index-snapshot eid start-valid-time tx-id)
+                 (when-let [visible-entity nil #_(some-> (db/entity-as-of index-snapshot eid start-valid-time tx-id)
 
                                                    (select-keys [:tx-time :tx-id :content-hash]))]
                    (->> (db/entity-history index-snapshot eid :asc {:start-valid-time start-valid-time})
