@@ -17,13 +17,24 @@
            (org.rocksdb BlockBasedTableConfig Checkpoint CompressionType FlushOptions LRUCache BloomFilter
                         Options ReadOptions RocksDB RocksIterator
                         DBOptions
+                        IndexType
+                        DataBlockIndexType
                         ColumnFamilyOptions ColumnFamilyDescriptor ColumnFamilyHandle
                         WriteBatch WriteOptions Statistics StatsLevel)))
 
 (set! *unchecked-math* :warn-on-boxed)
 
 (def ^:const column-family-defs [c/entity+vt+tt+tx-id->content-hash-index-id
-                                 c/entity+z+tx-id->content-hash-index-id])
+                                 c/entity+z+tx-id->content-hash-index-id
+
+                                 c/ave-index-id
+                                 c/ecav-index-id
+                                 c/hash-cache-index-id
+                                 c/av-index-id
+                                 c/ae-index-id
+                                 c/stats-index-id
+                                 ])
+
 
 (defn ^ColumnFamilyHandle ->column-family-handle [{:keys [^Map column-family-handles
                                                           ^ColumnFamilyHandle default-column-family]} k]
@@ -191,26 +202,57 @@
         cfo (doto (ColumnFamilyOptions.)
               (.optimizeUniversalStyleCompaction )
               (.setCompressionType CompressionType/LZ4_COMPRESSION)
-              (.setBottommostCompressionType CompressionType/ZSTD_COMPRESSION))
+              (.setBottommostCompressionType CompressionType/ZSTD_COMPRESSION)
+              (.setBloomLocality 5))
 
-        bloom-filter (BloomFilter. 4 false)
+        bloom-filter (BloomFilter. 18 false)
         _ (when block-cache
             (.setTableFormatConfig cfo (doto (BlockBasedTableConfig.)
                                          (.setBlockCache block-cache)
-                                          (.setFilterPolicy bloom-filter)
-                                          (.setWholeKeyFiltering false)
-                                          (.setCacheIndexAndFilterBlocks true)
-                                          (.setPinL0FilterAndIndexBlocksInCache true)
-                                          (.setCacheIndexAndFilterBlocksWithHighPriority true)
+                                         (.setFilterPolicy bloom-filter)
+                                         (.setWholeKeyFiltering false)
+                                         (.setCacheIndexAndFilterBlocks true)
+                                         (.setPinL0FilterAndIndexBlocksInCache true)
+                                         (.setCacheIndexAndFilterBlocksWithHighPriority true)
+                                         (.setIndexType IndexType/kHashSearch)
+                                         (.setDataBlockIndexType DataBlockIndexType/kDataBlockBinaryAndHash)
+                                         (.setDataBlockHashTableUtilRatio 0.5)
                                          )))
 
         _ (.useFixedLengthPrefixExtractor cfo 21)
         _ (.setMemtablePrefixBloomSizeRatio cfo 0.1)
 
+
+        cfo2 (doto (ColumnFamilyOptions.)
+              (.optimizeUniversalStyleCompaction )
+              (.setCompressionType CompressionType/LZ4_COMPRESSION)
+              (.setBottommostCompressionType CompressionType/ZSTD_COMPRESSION)
+              (.setBloomLocality 5))
+
+        bloom-filter (BloomFilter. 18 false)
+        _ (when block-cache
+            (.setTableFormatConfig cfo2 (doto (BlockBasedTableConfig.)
+                                         (.setBlockCache block-cache)
+                                         (.setFilterPolicy bloom-filter)
+                                         (.setWholeKeyFiltering false)
+                                         (.setCacheIndexAndFilterBlocks true)
+                                         (.setPinL0FilterAndIndexBlocksInCache true)
+                                         (.setCacheIndexAndFilterBlocksWithHighPriority true)
+                                         (.setIndexType IndexType/kHashSearch)
+                                         (.setDataBlockIndexType DataBlockIndexType/kDataBlockBinaryAndHash)
+                                         (.setDataBlockHashTableUtilRatio 0.5)
+                                         )))
+
+        _ (.useFixedLengthPrefixExtractor cfo2 41)
+        _ (.setMemtablePrefixBloomSizeRatio cfo2 0.1)
+
         column-family-descriptors
         (into [(ColumnFamilyDescriptor. RocksDB/DEFAULT_COLUMN_FAMILY default-cfo)]
               (for [c column-family-defs]
-                (ColumnFamilyDescriptor. (byte-array [(byte c)]))))
+                (if (#{7 9} c)
+                  (ColumnFamilyDescriptor. (byte-array [(byte c)]) cfo)
+                  (ColumnFamilyDescriptor. (byte-array [(byte c)]) cfo2))
+                ))
 
         column-family-handles-vector (java.util.Vector.)
 
@@ -218,7 +260,9 @@
         opts (doto (or ^DBOptions db-options (DBOptions.))
                (cond-> metrics (.setStatistics stats))
                (.setCreateIfMissing true)
-               (.setCreateMissingColumnFamilies true))
+               (.setCreateMissingColumnFamilies true)
+               (. setBytesPerSync (* 4 1024 1024))
+               (.setMaxOpenFiles -1))
 
         db (try
              (RocksDB/open opts (-> (Files/createDirectories db-dir (make-array FileAttribute 0))
@@ -240,8 +284,8 @@
                                 :db db
                                 :metrics metrics
                                 :write-options (doto (WriteOptions.)
-                                                 (.setSync (boolean sync?))
-                                                 (.setDisableWAL (boolean disable-wal?)))
+                                                 (.setSync false #_(boolean sync?))
+                                                 (.setDisableWAL true #_(boolean disable-wal?)))
                                 :column-family-handles column-family-handles
                                 :default-column-family (first column-family-handles-vector)})]
     (cond-> kv-store
