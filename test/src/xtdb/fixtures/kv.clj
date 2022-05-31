@@ -24,7 +24,7 @@
 (def mutablekv-dep {:xtdb/module 'xtdb.kv.mutable-kv/->mutable-kv-store})
 
 (defn with-each-kv-store* [f]
-  (doseq [kv-opts [memkv-dep
+  (doseq [kv-opts [mutablekv-dep] #_[memkv-dep
                    mutablekv-dep
                    rocks-dep
                    {:xtdb/module `xtdb.rocksdb.jnr/->kv-store

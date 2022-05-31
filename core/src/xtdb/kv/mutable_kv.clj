@@ -13,6 +13,13 @@
             first
             key))
 
+  (seek-to-last [_]
+    (when-not (.isEmpty db)
+      (some-> (reset! !tail-seq (->> (.tailMap db (.lastKey db) true)
+                                     (filter val)))
+              first
+              key)))
+
   (next [_]
     (some-> (swap! !tail-seq rest) first key))
 
@@ -45,8 +52,13 @@
 (deftype MutableKvTxSnapshot [db tx-db]
   kv/KvSnapshot
   (new-iterator [_]
-    (kv/->MergedKvIterator (->MutableKvIterator db (atom nil))
-                           (->MutableKvIterator tx-db (atom nil)) nil nil))
+    (kv/->MergedKvIterator (kv/new-iterator db)
+                           (kv/new-iterator tx-db)
+                           (atom nil)
+                           (atom nil)
+                           (atom nil)
+                           (atom nil)
+                           (atom nil)))
   (get-value [_ k]
     (or (kv/get-value tx-db (mem/as-buffer k))
         (kv/get-value db (mem/as-buffer k))))
@@ -74,9 +86,9 @@
   (begin-kv-tx [this] (->MutableKvStoreTx this (->mutable-kv-store)))
 
   kv/KvStoreTx
-  (abort-kv-store-tx [_])
+  (abort-kv-tx [_])
 
-  (commit-kv-store-tx [_]
+  (commit-kv-tx [_]
     (when-let [s (seq (kv/new-snapshot tx-kv-store))]
       (kv/store kv-store s))))
 
@@ -108,8 +120,8 @@
     (kv/store t2 [[(byte-array [(byte 1)]) (byte-array [(byte 4)])]])
 ;;    (.getByte  (mem/as-buffer (kv/get-value (kv/new-snapshot t) (byte-array [(byte 1)]))) 0)
 
-    (kv/commit-kv-store-tx t2)
-    (kv/commit-kv-store-tx t)
+    (kv/commit-kv-tx t2)
+    (kv/commit-kv-tx t)
     (kv/get-value (kv/new-snapshot m) (byte-array [(byte 1)]))
     )
   )

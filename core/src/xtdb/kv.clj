@@ -9,6 +9,7 @@
 
 (defprotocol KvIterator
   (seek [this k])
+  (seek-to-last [this])
   (next [this])
   (prev [this])
   (value [this]))
@@ -18,8 +19,8 @@
   (get-value [this k]))
 
 (defprotocol KvStoreTx
-  (abort-kv-store-tx [this])
-  (commit-kv-store-tx [this]))
+  (abort-kv-tx [this])
+  (commit-kv-tx [this]))
 
 ;; tag::KvStore[]
 (defprotocol KvStore
@@ -48,91 +49,177 @@
      :xtdb.kv/estimate-num-keys (count-keys this)
      :xtdb.kv/size (some-> (db-dir this) (xio/folder-size))}))
 
-(deftype MergedKvIterator [db-iterator tx-db-iterator !db-iterated-last !last-seek-other-k]
+(defn compare-k [k1 k2]
+  (if (and (some? k1) (some? k2))
+    (.compare mem/buffer-comparator k1 k2)
+    (if (some? k1)
+      -1
+      1)))
+
+(deftype MergedKvIterator [db-iterator tx-db-iterator !db-iterated-last !last-seek-k !last-seek-other-k !prev-init-db !prev-init-db-tx]
   KvIterator
   (seek [_ k]
+    (reset! !prev-init-db true)
+    (reset! !prev-init-db-tx true)
     (let [db-k (seek db-iterator k)
           tx-db-k (seek tx-db-iterator k)
-          cmp (.compare mem/buffer-comparator db-k tx-db-k)]
+          cmp (compare-k db-k tx-db-k)]
       (cond
-        (neg? cmp) (do
-                     (reset! !db-iterated-last true)
-                     (reset! !last-seek-other-k tx-db-k)
-                     db-k)
-        (zero? cmp) (do
-                      (reset! !db-iterated-last false)
-                      (reset! !last-seek-other-k db-k)
-                      tx-db-k)
-        :else (do
-                (reset! !db-iterated-last false)
-                (reset! !last-seek-other-k db-k)
-                tx-db-k))))
+        (neg? cmp)
+        (do
+          (reset! !db-iterated-last true)
+          (reset! !last-seek-k db-k)
+          (reset! !last-seek-other-k tx-db-k)
+          db-k)
+        (zero? cmp)
+        (do
+          (reset! !db-iterated-last false)
+          (reset! !last-seek-k tx-db-k)
+          (reset! !last-seek-other-k (next db-iterator))
+          tx-db-k)
+        :else
+        (do
+          (reset! !db-iterated-last false)
+          (reset! !last-seek-k tx-db-k)
+          (reset! !last-seek-other-k db-k)
+          tx-db-k))))
+
+  (seek-to-last [_]
+    (reset! !prev-init-db true)
+    (reset! !prev-init-db-tx true)
+    (let [db-k (seek-to-last db-iterator)
+          tx-db-k (seek-to-last tx-db-iterator)
+          cmp (compare-k tx-db-k db-k )]
+      (cond
+        (neg? cmp)
+        (do
+          (reset! !db-iterated-last true)
+          (reset! !last-seek-k db-k)
+          (reset! !last-seek-other-k tx-db-k)
+          db-k)
+        (zero? cmp)
+        (do
+          (reset! !db-iterated-last false)
+          (reset! !last-seek-k tx-db-k)
+          (reset! !last-seek-other-k (next db-iterator))
+          tx-db-k)
+        :else
+        (do
+          (reset! !db-iterated-last false)
+          (reset! !last-seek-k tx-db-k)
+          (reset! !last-seek-other-k db-k)
+          tx-db-k))))
 
   (next [_]
     (if @!db-iterated-last
       (let [db-next-k (next db-iterator)
             tx-db-k @!last-seek-other-k
-            cmp (.compare mem/buffer-comparator db-next-k tx-db-k)]
+            cmp (compare-k db-next-k tx-db-k)]
         (cond
-          (neg? cmp) (do
-                       (reset! !db-iterated-last true)
-                       db-next-k)
-          (zero? cmp) (do
-                        (reset! !db-iterated-last false)
-                        (reset! !last-seek-other-k db-next-k)
-                        tx-db-k)
-          :else (do
-                  (reset! !db-iterated-last false)
-                  (reset! !last-seek-other-k db-next-k)
-                  tx-db-k)))
-      (let [tx-db-next-k (next tx-db-iterator)
-            db-k @!last-seek-other-k
-            cmp (.compare mem/buffer-comparator db-k tx-db-next-k)]
+          (neg? cmp)
+          db-next-k
+
+          (zero? cmp)
+          (do
+            (reset! !db-iterated-last false)
+            (reset! !last-seek-other-k (next db-iterator))
+            tx-db-k)
+
+          :else
+          (do
+            (reset! !db-iterated-last false)
+            (reset! !last-seek-other-k db-next-k)
+            tx-db-k)))
+      (let [db-k @!last-seek-other-k
+            tx-db-next-k (next tx-db-iterator)
+            cmp (compare-k db-k tx-db-next-k)]
         (cond
-          (neg? cmp) (do
-                       (reset! !db-iterated-last true)
-                       db-k)
-          (zero? cmp) (do
-                        (reset! !db-iterated-last false)
-                        (reset! !last-seek-other-k db-k)
-                        tx-db-next-k)
-          :else (do
-                  (reset! !db-iterated-last false)
-                  (reset! !last-seek-other-k db-k)
-                  tx-db-next-k)))))
+          (neg? cmp)
+          (do
+            (reset! !db-iterated-last true)
+            (reset! !last-seek-other-k tx-db-next-k)
+            db-k)
+
+          (zero? cmp)
+          (do
+            (reset! !last-seek-other-k (next db-iterator))
+            tx-db-next-k)
+
+          :else
+          (do
+            (reset! !last-seek-other-k db-k)
+            tx-db-next-k)))))
 
   (prev [_]
     (if @!db-iterated-last
       (let [db-prev-k (prev db-iterator)
-            tx-db-k @!last-seek-other-k
-            cmp (.compare mem/buffer-comparator db-prev-k tx-db-k)]
-        (cond
-          (neg? cmp) (do
-                       (reset! !db-iterated-last true)
-                       db-prev-k)
-          (zero? cmp) (do
-                        (reset! !db-iterated-last false)
-                        (reset! !last-seek-other-k db-prev-k)
-                        tx-db-k)
-          :else (do
-                  (reset! !db-iterated-last false)
-                  (reset! !last-seek-other-k db-prev-k)
-                  tx-db-k)))
+            tx-db-k
+            (or @!last-seek-other-k
+                (seek-to-last tx-db-iterator))
+            #_(or (when @!prev-init-db-tx
+                          (or
+                           (seek db-iterator db-prev-k)
+                           (seek-to-last tx-db-iterator)))
+                        @!last-seek-other-k)
+            #_(or @!last-seek-other-k
+                        (when @!prev-init-db-tx
+                          (seek-to-last tx-db-iterator)))]
+        (reset! !prev-init-db-tx false)
+        (when (or (some? db-prev-k) (some? tx-db-k))
+          (let [cmp (compare-k db-prev-k tx-db-k)]
+            (cond
+              (pos? cmp)
+              (do
+                (prn true :neg)
+                db-prev-k)
+
+              (zero? cmp)
+              (do
+                (prn true :zero)
+                (reset! !db-iterated-last false)
+                (reset! !last-seek-other-k (prev db-iterator))
+                tx-db-k)
+
+              :else
+              (do
+                (prn true :pos)
+                (reset! !db-iterated-last false)
+                (reset! !last-seek-other-k db-prev-k)
+                tx-db-k)))))
       (let [tx-db-prev-k (prev tx-db-iterator)
-            db-k @!last-seek-other-k
-            cmp (.compare mem/buffer-comparator db-k tx-db-prev-k)]
-        (cond
-          (neg? cmp) (do
-                       (reset! !db-iterated-last true)
-                       db-k)
-          (zero? cmp) (do
-                        (reset! !db-iterated-last false)
-                        (reset! !last-seek-other-k db-k)
-                        tx-db-prev-k)
-          :else (do
-                  (reset! !db-iterated-last false)
-                  (reset! !last-seek-other-k db-k)
-                  tx-db-prev-k)))))
+            db-k
+            (or
+             @!last-seek-other-k
+             (seek-to-last db-iterator))
+            #_(or (if @!prev-init-db
+                       (seek db-iterator tx-db-prev-k)
+                       (seek-to-last db-iterator))
+                       @!last-seek-other-k)
+            #_(or @!last-seek-other-k
+                (when @!prev-init-db-tx
+                  (seek-to-last tx-db-iterator)))]
+        (reset! !prev-init-db false)
+        (cond (and (some? tx-db-prev-k) (some? db-k))
+          (let [cmp (compare-k db-k tx-db-prev-k)]
+            (cond
+              (pos? cmp)
+              (do
+                (prn false :neg)
+                (reset! !db-iterated-last true)
+                (reset! !last-seek-other-k tx-db-prev-k)
+                db-k)
+
+              (zero? cmp)
+              (do
+                (prn false :zero)
+                (reset! !last-seek-other-k (prev db-iterator))
+                tx-db-prev-k)
+
+              :else
+              (do
+                (prn false :pos db-k tx-db-prev-k)
+                (reset! !last-seek-other-k db-k)
+                tx-db-prev-k)))))))
 
   (value [_]
     (if @!db-iterated-last
