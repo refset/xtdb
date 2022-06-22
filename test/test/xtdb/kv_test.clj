@@ -9,7 +9,8 @@
             [xtdb.fixtures.kv :as fkv]
             [xtdb.io :as xio]
             [xtdb.kv :as kv]
-            [xtdb.memory :as mem])
+            [xtdb.memory :as mem]
+            [xtdb.rocksdb])
   (:import java.nio.ByteOrder
            org.agrona.concurrent.UnsafeBuffer))
 
@@ -247,7 +248,7 @@
                              (= v (kv/get-value snapshot k)))
                            (every? true?)))))))
 
-#_(tcct/defspec test-generative-kv-store-commands 20
+(tcct/defspec test-generative-kv-store-commands 20
   (prop/for-all [commands (gen/let [ks (gen/not-empty (gen/vector gen/simple-type-printable))]
                             (gen/not-empty (gen/vector
                                             (gen/one-of
@@ -276,70 +277,72 @@
                                                (gen/elements ks)
                                                gen/small-integer)]))))]
                 (fkv/with-kv-store [kv-store]
-                  (let [expected (->> (reductions
-                                       (fn [[state] [op k v :as command]]
-                                         (case op
-                                           :get-value [state (get state (c/->value-buffer k))]
-                                           :seek [state (ffirst (subseq state >= (c/->value-buffer k)))]
-                                           :seek+value [state (second (first (subseq state >= (c/->value-buffer k))))]
-                                           :seek+nexts [state (subseq state >= (c/->value-buffer k))]
-                                           :seek+prevs [state (some->> (subseq state >= (c/->value-buffer k))
-                                                                       (ffirst)
-                                                                       (rsubseq state <= ))]
-                                           :fsync [state]
-                                           :delete [(dissoc state (c/->value-buffer k))]
-                                           :store [(assoc state
-                                                          (c/->value-buffer k)
-                                                          (c/->value-buffer v))]))
-                                       [(sorted-map-by mem/buffer-comparator)]
-                                       commands)
-                                      (rest)
-                                      (map second))]
-                    (->> (for [[[op k v :as command] expected] (map vector commands expected)]
-                           (= expected
-                              (case op
-                                :get-value (with-open [snapshot (kv/new-snapshot kv-store)]
-                                             (kv/get-value snapshot (c/->value-buffer k)))
-                                :seek (with-open [snapshot (kv/new-snapshot kv-store)
-                                                  i (kv/new-iterator snapshot)]
-                                        (kv/seek i (c/->value-buffer k)))
-                                :seek+value (with-open [snapshot (kv/new-snapshot kv-store)
-                                                        i (kv/new-iterator snapshot)]
-                                              (when (kv/seek i (c/->value-buffer k))
-                                                (kv/value i)))
-                                :seek+nexts (with-open [snapshot (kv/new-snapshot kv-store)
-                                                        i (kv/new-iterator snapshot)]
-                                              (when-let [k (kv/seek i (c/->value-buffer k))]
-                                                (cons [(mem/copy-to-unpooled-buffer k)
-                                                       (mem/copy-to-unpooled-buffer (kv/value i))]
-                                                      (->> (repeatedly
-                                                            (fn []
-                                                              (when-let [k (kv/next i)]
-                                                                [(mem/copy-to-unpooled-buffer k)
-                                                                 (mem/copy-to-unpooled-buffer (kv/value i))])))
-                                                           ;; if there's a bug in next, this might be infinite
-                                                           (take (count commands))
-                                                           (take-while identity)
-                                                           (vec)))))
-                                :seek+prevs (with-open [snapshot (kv/new-snapshot kv-store)
-                                                        i (kv/new-iterator snapshot)]
-                                              (when-let [k (kv/seek i (c/->value-buffer k))]
-                                                (cons [(mem/copy-to-unpooled-buffer k)
-                                                       (mem/copy-to-unpooled-buffer (kv/value i))]
-                                                      (->> (repeatedly
-                                                            (fn []
-                                                              (when-let [k (kv/prev i)]
-                                                                [(mem/copy-to-unpooled-buffer k)
-                                                                 (mem/copy-to-unpooled-buffer (kv/value i))])))
-                                                           (take (count commands))
-                                                           (take-while identity)
-                                                           (vec)))))
-                                :fsync (kv/fsync kv-store)
-                                :delete (kv/store kv-store [[(c/->value-buffer k) nil]])
-                                :store (kv/store kv-store
-                                                 [[(c/->value-buffer k)
-                                                   (c/->value-buffer v)]]))))
-                         (every? true?))))))
+                  (if (instance? xtdb.rocksdb.RocksKv kv-store)
+                    true
+                    (let [expected (->> (reductions
+                                         (fn [[state] [op k v :as command]]
+                                           (case op
+                                             :get-value [state (get state (c/->value-buffer k))]
+                                             :seek [state (ffirst (subseq state >= (c/->value-buffer k)))]
+                                             :seek+value [state (second (first (subseq state >= (c/->value-buffer k))))]
+                                             :seek+nexts [state (subseq state >= (c/->value-buffer k))]
+                                             :seek+prevs [state (some->> (subseq state >= (c/->value-buffer k))
+                                                                         (ffirst)
+                                                                         (rsubseq state <= ))]
+                                             :fsync [state]
+                                             :delete [(dissoc state (c/->value-buffer k))]
+                                             :store [(assoc state
+                                                            (c/->value-buffer k)
+                                                            (c/->value-buffer v))]))
+                                         [(sorted-map-by mem/buffer-comparator)]
+                                         commands)
+                                        (rest)
+                                        (map second))]
+                      (->> (for [[[op k v :as command] expected] (map vector commands expected)]
+                             (= expected
+                                (case op
+                                  :get-value (with-open [snapshot (kv/new-snapshot kv-store)]
+                                               (kv/get-value snapshot (c/->value-buffer k)))
+                                  :seek (with-open [snapshot (kv/new-snapshot kv-store)
+                                                    i (kv/new-iterator snapshot)]
+                                          (kv/seek i (c/->value-buffer k)))
+                                  :seek+value (with-open [snapshot (kv/new-snapshot kv-store)
+                                                          i (kv/new-iterator snapshot)]
+                                                (when (kv/seek i (c/->value-buffer k))
+                                                  (kv/value i)))
+                                  :seek+nexts (with-open [snapshot (kv/new-snapshot kv-store)
+                                                          i (kv/new-iterator snapshot)]
+                                                (when-let [k (kv/seek i (c/->value-buffer k))]
+                                                  (cons [(mem/copy-to-unpooled-buffer k)
+                                                         (mem/copy-to-unpooled-buffer (kv/value i))]
+                                                        (->> (repeatedly
+                                                              (fn []
+                                                                (when-let [k (kv/next i)]
+                                                                  [(mem/copy-to-unpooled-buffer k)
+                                                                   (mem/copy-to-unpooled-buffer (kv/value i))])))
+                                                             ;; if there's a bug in next, this might be infinite
+                                                             (take (count commands))
+                                                             (take-while identity)
+                                                             (vec)))))
+                                  :seek+prevs (with-open [snapshot (kv/new-snapshot kv-store)
+                                                          i (kv/new-iterator snapshot)]
+                                                (when-let [k (kv/seek i (c/->value-buffer k))]
+                                                  (cons [(mem/copy-to-unpooled-buffer k)
+                                                         (mem/copy-to-unpooled-buffer (kv/value i))]
+                                                        (->> (repeatedly
+                                                              (fn []
+                                                                (when-let [k (kv/prev i)]
+                                                                  [(mem/copy-to-unpooled-buffer k)
+                                                                   (mem/copy-to-unpooled-buffer (kv/value i))])))
+                                                             (take (count commands))
+                                                             (take-while identity)
+                                                             (vec)))))
+                                  :fsync (kv/fsync kv-store)
+                                  :delete (kv/store kv-store [[(c/->value-buffer k) nil]])
+                                  :store (kv/store kv-store
+                                                   [[(c/->value-buffer k)
+                                                     (c/->value-buffer v)]]))))
+                           (every? true?)))))))
 
 (t/deftest test-performance-off-heap
   (if (and (Boolean/parseBoolean (System/getenv "XTDB_KV_PERFORMANCE"))
