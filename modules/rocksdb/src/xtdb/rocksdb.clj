@@ -9,7 +9,8 @@
             [xtdb.checkpoint :as cp]
             [xtdb.kv.index-store :as kvi]
             [xtdb.codec :as c])
-  (:import (java.io Closeable File)
+  (:import java.util.Map java.util.HashMap
+           (java.io Closeable File)
            (java.nio.file Files Path)
            java.nio.file.attribute.FileAttribute
            (org.rocksdb BlockBasedTableConfig Checkpoint CompressionType FlushOptions LRUCache
@@ -23,7 +24,7 @@
 (extend-protocol CfId
   (class (byte-array 0))
   (->cf-id [this]
-    (first this))
+    (aget ^"[B" this 0))
 
   org.agrona.DirectBuffer
   (->cf-id [this]
@@ -42,40 +43,39 @@
   (when (.isValid i)
     (mem/as-buffer (.key i))))
 
-(defrecord RocksKvIterator [i is k->i]
+(deftype RocksKvIterator [^:unsynchronized-mutable ^RocksIterator, i, ^Map is, k->i]
   kv/KvIterator
-  (seek [this k]
+  (seek [_ k]
     (let [cf-id (->cf-id k)]
-      (reset! i (or (get @is cf-id)
-                    (do
-                      (swap! is assoc cf-id (k->i k))
-                      (get @is cf-id)))))
-    (.seek ^RocksIterator @i (mem/direct-byte-buffer k))
-    (iterator->key ^RocksIterator @i))
+      (set! i (or (.get is cf-id)
+                  (do
+                    (.put is cf-id (k->i k))
+                    (.get is cf-id)))))
+    (.seek ^RocksIterator i (mem/direct-byte-buffer k))
+    (iterator->key ^RocksIterator i))
 
-  (next [this]
-    (.next ^RocksIterator @i)
-    (iterator->key ^RocksIterator @i))
+  (next [_]
+    (.next ^RocksIterator i)
+    (iterator->key ^RocksIterator i))
 
-  (prev [this]
-    (.prev ^RocksIterator @i)
-    (iterator->key ^RocksIterator @i))
+  (prev [_]
+    (.prev ^RocksIterator i)
+    (iterator->key ^RocksIterator i))
 
-  (value [this]
-    (mem/as-buffer (.value ^RocksIterator @i)))
+  (value [_]
+    (mem/as-buffer (.value ^RocksIterator i)))
 
   Closeable
-  (close [this]
-    (doseq [[_ i] @is]
+  (close [_]
+    (doseq [i (.values is)]
       (.close ^RocksIterator i))))
 
 (defrecord RocksKvSnapshot [^RocksDB db, ->column-family-handle, ^ReadOptions read-options, snapshot]
   kv/KvSnapshot
   (new-iterator [_]
-    (let [i (atom nil)
-          k->i (fn [k]
+    (let [k->i (fn [k]
                  (.newIterator db (->column-family-handle k) read-options))]
-      (->RocksKvIterator i (atom {}) k->i)))
+      (->RocksKvIterator nil (HashMap.) k->i)))
 
   (get-value [_ k]
     (some-> (.get db ^ColumnFamilyHandle (->column-family-handle k) read-options (mem/->on-heap k))
