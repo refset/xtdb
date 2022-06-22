@@ -247,7 +247,7 @@
                              (= v (kv/get-value snapshot k)))
                            (every? true?)))))))
 
-(tcct/defspec test-generative-kv-store-commands 20
+#_(tcct/defspec test-generative-kv-store-commands 20
   (prop/for-all [commands (gen/let [ks (gen/not-empty (gen/vector gen/simple-type-printable))]
                             (gen/not-empty (gen/vector
                                             (gen/one-of
