@@ -1,5 +1,5 @@
 (ns xtdb.nippy-utils
-  (:require [juxt.clojars-mirrors.nippy.v3v1v1.taoensso.nippy :as nippy])
+  (:require [xtdb.nippy-fork :as nippyf])
   (:import [org.agrona.io DirectBufferInputStream ExpandableDirectBufferOutputStream]
            [java.io DataInputStream DataOutputStream]))
 
@@ -14,12 +14,21 @@
 
 (def ^:const ^:private id-map-sm 112)
 
+
+;; finding the end of a v is hard, we want to preserve the orignal byte-array, keep track
+
 (defn doc->kvs
   "Convert a nippified XT document to raw K/V byte arrays"
   [buf]
   (let [in (-> (DirectBufferInputStream. buf)
                (DataInputStream.))]
     (assert (= id-map-sm (.readByte in)))
+    (let [kv-count (.readByte  in)]
+      (println kv-count))
+
+    ;; Can we just read the bytes?
+
+    ;; Like, we want
     []
     ;(nippy/thaw-from-in! in)
     ))
