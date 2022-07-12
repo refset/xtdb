@@ -1,5 +1,6 @@
 (ns xtdb.nippy-utils
-  (:require [xtdb.nippy-fork :as nippyf])
+  (:require [xtdb.nippy-fork :as nippyf]
+            [juxt.clojars-mirrors.encore.v3v21v0.taoensso.encore :as enc])
   (:import [org.agrona.io DirectBufferInputStream ExpandableDirectBufferOutputStream]
            [java.io DataInputStream DataOutputStream]))
 
@@ -23,12 +24,6 @@
   (let [in (-> (DirectBufferInputStream. buf)
                (DataInputStream.))]
     (assert (= id-map-sm (.readByte in)))
-    (let [kv-count (.readByte  in)]
-      (println kv-count))
 
-    ;; Can we just read the bytes?
-
-    ;; Like, we want
-    []
-    ;(nippy/thaw-from-in! in)
-    ))
+    (enc/reduce-n (fn [acc _] (assoc acc (nippyf/get-bytes-from-in! in) (nippyf/get-bytes-from-in! in)))
+                  {} (.readByte in))))
