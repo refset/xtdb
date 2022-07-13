@@ -25,7 +25,7 @@
 (def idkb (mem/->nippy-buffer :crux.db/id))
 
 (defn doc->eid
-  "Convert a nippified XT document to raw K/V byte arrays"
+  "Extract encoded eid from nippified document"
   [buf]
   (let [in (-> (DirectBufferInputStream. buf)
                (DataInputStream.))]
