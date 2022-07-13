@@ -11,5 +11,6 @@
                 nu/doc->kvs
                 (map (fn [[^"[B" kb ^"[B" vb]]
                        ;; NOTE: hardcoded for string values
-                       [(keyword (String. kb)) (String. vb)]))
+                                        ;[(keyword (String. kb)) (String. vb)]
+                       [(nippyf/thaw kb) (nippyf/thaw vb)]))
                 (into {})))))
