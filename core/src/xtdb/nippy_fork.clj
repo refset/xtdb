@@ -1387,6 +1387,14 @@
 
 ;;;; Thawing
 
+(defn read-to-byte-buffer [^MutableDirectBuffer to, pos, ^DataInput from, len]
+  ;; Replacing:
+  ;; (let [ba (byte-array len)]
+  ;;   (.readFully in ba 0 len)
+  ;;   (.putBytes to 2 ba))
+  (dotimes [i len]
+    (.putByte to (+ i pos) (.readByte from))))
+
 (declare ^:private read-bytes)
 (defn- read-bytes-sm [^DataInput in] (read-bytes in (read-sm-count in)))
 (defn- read-bytes-md [^DataInput in] (read-bytes in (read-md-count in)))
@@ -1394,9 +1402,7 @@
 (defn- read-bytes
   ([^DataInput in ^MutableDirectBuffer to len]
    (.putByte to 1 len)
-   (let [ba (byte-array len)]
-     (.readFully in ba 0 len)
-     (.putBytes to 2 ba)))
+   (read-to-byte-buffer to 2 in len))
   ([^DataInput in ^MutableDirectBuffer to    ]
    (enc/case-eval (.readByte in)
     id-bytes-0  (byte-array 0)
