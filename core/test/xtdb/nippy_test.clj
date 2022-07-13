@@ -15,3 +15,14 @@
                        [(mem/<-nippy-buffer kb)
                         (mem/<-nippy-buffer vb)]))
                 (into {})))))
+
+(t/deftest test-nested-map
+  (t/is (= {:xt/id "ivan" :name "Ivan" :nested {:a :b}}
+           (->> {:xt/id "ivan" :name "Ivan" :nested {:a :b}}
+                mem/->nippy-buffer
+                nu/doc->kvs
+                (map (fn [[^DirectBuffer kb ^DirectBuffer vb]]
+                       ;; NOTE: hardcoded for string values
+                       [(mem/<-nippy-buffer kb)
+                        (mem/<-nippy-buffer vb)]))
+                (into {})))))

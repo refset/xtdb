@@ -1103,6 +1103,7 @@
       (-freeze-with-meta! x-val out))))
 
 (declare thaw-from-in!)
+(declare get-bytes-from-in!)
 (def ^:private thaw-cached
   (let [not-found (Object.)]
     (fn [idx in]
@@ -1400,10 +1401,11 @@
 (defn- read-bytes-md [^DataInput in] (read-bytes in (read-md-count in)))
 (defn- read-bytes-lg [^DataInput in] (read-bytes in (read-lg-count in)))
 (defn- read-bytes
-  ([^DataInput in ^MutableDirectBuffer to len]
-   (.putByte to 1 len)
-   (read-to-byte-buffer to 2 in len))
-  ([^DataInput in ^MutableDirectBuffer to    ]
+  ([^DataInput in ^MutableDirectBuffer to pos len]
+   (.putByte to pos len)
+   (read-to-byte-buffer to (inc pos) in len)
+   (+ (inc pos) len))
+  ([^DataInput in ^MutableDirectBuffer to pos    ]
    (enc/case-eval (.readByte in)
     id-bytes-0  (byte-array 0)
     id-bytes-sm (read-bytes in to (read-sm-count in))
@@ -1441,14 +1443,13 @@
       ary)
     ary (alength ary)))
 
-(defn- read-kvs-into [to ^DataInput in ^long n]
-  (if (and (editable? to) (> n 10))
-    (persistent!
-      (enc/reduce-n (fn [acc _] (assoc! acc (thaw-from-in! in) (thaw-from-in! in)))
-        (transient to) n))
-
-    (enc/reduce-n (fn [acc _] (assoc acc (thaw-from-in! in) (thaw-from-in! in)))
-      to n)))
+(defn- read-kvs-into [^MutableDirectBuffer to ^DataInput in ^long pos ^long n]
+  (.putByte to pos n)
+  (enc/reduce-n (fn [pos _]
+                  (let [pos (get-bytes-from-in! to pos in)]
+                    (get-bytes-from-in! to pos in)))
+                (inc pos)
+                n))
 
 (defn- read-kvs-depr1 [to ^DataInput in] (read-kvs-into to in (quot (.readInt in) 2)))
 
@@ -1787,10 +1788,11 @@
 (defn get-bytes-from-in!
   "Read a frozen object from given DataInput to raw bytes.
    WARNING: currently only implemented for keywords and strings"
-  [^MutableDirectBuffer to, ^DataInput data-input]
+  [^MutableDirectBuffer to, pos, ^DataInput data-input]
   (let [in      data-input
-        type-id (.readByte in)]
-    (.putByte to 0 type-id)
+        type-id (.readByte in)
+        _ (.putByte to pos type-id)
+        pos (inc pos)]
     (when-debug (println (str "get-bytes-from-in!: " type-id)))
     (try
       (enc/case-eval type-id
@@ -1840,14 +1842,14 @@
         ;; id-objects-lg  (read-objects (object-array (read-lg-count in)) in)
 
         id-str-0       ""
-        id-str-sm               (read-bytes in to (read-sm-count in))
-        id-str-md               (read-bytes in to (read-md-count in))
-        id-str-lg               (read-bytes in to (read-lg-count in))
+        id-str-sm               (read-bytes in to pos (read-sm-count in))
+        id-str-md               (read-bytes in to pos (read-md-count in))
+        id-str-lg               (read-bytes in to pos (read-lg-count in))
 
-        id-kw-sm       (read-bytes in to (read-sm-count in))
-        id-kw-md       (read-bytes in to (read-md-count in))
-        id-kw-md-depr1 (read-bytes in to (read-lg-count in))
-        id-kw-lg       (read-bytes in to (read-lg-count in))
+        id-kw-sm       (read-bytes in to pos (read-sm-count in))
+        id-kw-md       (read-bytes in to pos (read-md-count in))
+        id-kw-md-depr1 (read-bytes in to pos (read-lg-count in))
+        id-kw-lg       (read-bytes in to pos (read-lg-count in))
 
         ;; id-sym-sm       (symbol  (read-str in (read-sm-count in)))
         ;; id-sym-md       (symbol  (read-str in (read-md-count in)))
@@ -1867,10 +1869,10 @@
         ;; id-set-md      (read-into    #{} in (read-md-count in))
         ;; id-set-lg      (read-into    #{} in (read-lg-count in))
 
-        ;; id-map-0       {}
-        ;; id-map-sm      (read-kvs-into {} in (read-sm-count in))
-        ;; id-map-md      (read-kvs-into {} in (read-md-count in))
-        ;; id-map-lg      (read-kvs-into {} in (read-lg-count in))
+        id-map-0       {}
+        id-map-sm      (read-kvs-into to in pos (read-sm-count in))
+        id-map-md      (read-kvs-into to in pos (read-md-count in))
+        id-map-lg      (read-kvs-into to in pos (read-lg-count in))
 
         ;; id-queue       (read-into (PersistentQueue/EMPTY) in (read-lg-count in))
         ;; id-sorted-set  (read-into     (sorted-set)        in (read-lg-count in))

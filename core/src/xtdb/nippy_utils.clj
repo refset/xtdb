@@ -1,23 +1,10 @@
 (ns xtdb.nippy-utils
   (:require [xtdb.nippy-fork :as nippyf]
             [juxt.clojars-mirrors.encore.v3v21v0.taoensso.encore :as enc])
-  (:import [org.agrona.io DirectBufferInputStream ExpandableDirectBufferOutputStream]
-           [org.agrona DirectBuffer ExpandableDirectByteBuffer MutableDirectBuffer]
-           [java.io DataInputStream DataOutputStream]))
-
-;; Nippify a doc, then convert the doc into a WriteBatch
-;; Takes our transducer friend
-
-;; Baby step
-;; 1) get the ks and vs as byte-arrays,
-;; 2) but extract the id
-
-;; Assumptions, As are always Keywords
+  (:import [org.agrona.io DirectBufferInputStream]
+           [org.agrona ExpandableDirectByteBuffer]))
 
 (def ^:const ^:private id-map-sm 112)
-
-
-;; finding the end of a v is hard, we want to preserve the orignal byte-array, keep track
 
 (defn edbb []
   (ExpandableDirectByteBuffer. 32))
@@ -30,6 +17,6 @@
     (assert (= id-map-sm (.readByte in)))
 
     (enc/reduce-n (fn [acc _] (assoc acc
-                                     (doto (edbb) (nippyf/get-bytes-from-in! in))
-                                     (doto (edbb) (nippyf/get-bytes-from-in! in))))
+                                     (doto (edbb) (nippyf/get-bytes-from-in! 0 in))
+                                     (doto (edbb) (nippyf/get-bytes-from-in! 0 in))))
                   {} (.readByte in))))
