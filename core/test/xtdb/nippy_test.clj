@@ -10,8 +10,7 @@
            (->> {:xt/id "ivan" :name "Ivan"}
                 mem/->nippy-buffer
                 nu/doc->kvs
-                (map (fn [[^DirectBuffer kb ^DirectBuffer vb]]
-                       ;; NOTE: hardcoded for string values
+                (map (fn [[kb vb]]
                        [(mem/<-nippy-buffer kb)
                         (mem/<-nippy-buffer vb)]))
                 (into {})))))
@@ -21,8 +20,14 @@
            (->> {:xt/id "ivan" :name "Ivan" :nested {:a :b}}
                 mem/->nippy-buffer
                 nu/doc->kvs
-                (map (fn [[^DirectBuffer kb ^DirectBuffer vb]]
-                       ;; NOTE: hardcoded for string values
+                (map (fn [[kb vb]]
                        [(mem/<-nippy-buffer kb)
                         (mem/<-nippy-buffer vb)]))
                 (into {})))))
+
+(t/deftest test-find-eid
+  (t/is (= :ivan
+           (->> {:name "Ivan" :crux.db/id :ivan}
+                mem/->nippy-buffer
+                nu/doc->eid
+                mem/<-nippy-buffer))))
