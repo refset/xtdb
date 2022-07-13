@@ -2,6 +2,7 @@
   (:require [xtdb.nippy-fork :as nippyf]
             [juxt.clojars-mirrors.encore.v3v21v0.taoensso.encore :as enc])
   (:import [org.agrona.io DirectBufferInputStream ExpandableDirectBufferOutputStream]
+           [org.agrona DirectBuffer ExpandableDirectByteBuffer MutableDirectBuffer]
            [java.io DataInputStream DataOutputStream]))
 
 ;; Nippify a doc, then convert the doc into a WriteBatch
@@ -18,6 +19,9 @@
 
 ;; finding the end of a v is hard, we want to preserve the orignal byte-array, keep track
 
+(defn edbb []
+  (ExpandableDirectByteBuffer. 32))
+
 (defn doc->kvs
   "Convert a nippified XT document to raw K/V byte arrays"
   [buf]
@@ -25,5 +29,7 @@
                (DataInputStream.))]
     (assert (= id-map-sm (.readByte in)))
 
-    (enc/reduce-n (fn [acc _] (assoc acc (nippyf/get-bytes-from-in! in) (nippyf/get-bytes-from-in! in)))
+    (enc/reduce-n (fn [acc _] (assoc acc
+                                     (doto (edbb) (nippyf/get-bytes-from-in! in))
+                                     (doto (edbb) (nippyf/get-bytes-from-in! in))))
                   {} (.readByte in))))

@@ -22,7 +22,8 @@
     APersistentMap APersistentVector APersistentSet
     IPersistentMap ; IPersistentVector IPersistentSet IPersistentList
     PersistentQueue PersistentTreeMap PersistentTreeSet PersistentList
-    LazySeq IRecord ISeq IType]))
+    LazySeq IRecord ISeq IType]
+   [org.agrona DirectBuffer ExpandableDirectByteBuffer MutableDirectBuffer]))
 
 (if (vector? enc/encore-version)
   (enc/assert-min-encore-version [2 126 2])
@@ -1391,13 +1392,17 @@
 (defn- read-bytes-md [^DataInput in] (read-bytes in (read-md-count in)))
 (defn- read-bytes-lg [^DataInput in] (read-bytes in (read-lg-count in)))
 (defn- read-bytes
-  ([^DataInput in len] (let [ba (byte-array len)] (.readFully in ba 0 len) ba))
-  ([^DataInput in    ]
+  ([^DataInput in ^MutableDirectBuffer to len]
+   (.putByte to 1 len)
+   (let [ba (byte-array len)]
+     (.readFully in ba 0 len)
+     (.putBytes to 2 ba)))
+  ([^DataInput in ^MutableDirectBuffer to    ]
    (enc/case-eval (.readByte in)
     id-bytes-0  (byte-array 0)
-    id-bytes-sm (read-bytes in (read-sm-count in))
-    id-bytes-md (read-bytes in (read-md-count in))
-    id-bytes-lg (read-bytes in (read-lg-count in)))))
+    id-bytes-sm (read-bytes in to (read-sm-count in))
+    id-bytes-md (read-bytes in to (read-md-count in))
+    id-bytes-lg (read-bytes in to (read-lg-count in)))))
 
 (defn- read-str-sm [^DataInput in] (String. ^bytes (read-bytes in (read-sm-count in)) charset))
 (defn- read-str-md [^DataInput in] (String. ^bytes (read-bytes in (read-md-count in)) charset))
@@ -1776,190 +1781,191 @@
 (defn get-bytes-from-in!
   "Read a frozen object from given DataInput to raw bytes.
    WARNING: currently only implemented for keywords and strings"
-  [^DataInput data-input]
+  [^MutableDirectBuffer to, ^DataInput data-input]
   (let [in      data-input
         type-id (.readByte in)]
+    (.putByte to 0 type-id)
     (when-debug (println (str "get-bytes-from-in!: " type-id)))
     (try
       (enc/case-eval type-id
 
-        id-reader-sm       (read-edn             (read-str in (read-sm-count in)))
-        id-reader-md       (read-edn             (read-str in (read-md-count in)))
-        id-reader-lg       (read-edn             (read-str in (read-lg-count in)))
-        id-reader-lg2      (read-edn             (read-str in (read-lg-count in)))
-        id-record-sm       (read-record       in (read-str in (read-sm-count in)))
-        id-record-md       (read-record       in (read-str in (read-md-count in)))
-        id-record-lg       (read-record       in (read-str in (read-lg-count in)))
+        ;; id-reader-sm       (read-edn             (read-str in (read-sm-count in)))
+        ;; id-reader-md       (read-edn             (read-str in (read-md-count in)))
+        ;; id-reader-lg       (read-edn             (read-str in (read-lg-count in)))
+        ;; id-reader-lg2      (read-edn             (read-str in (read-lg-count in)))
+        ;; id-record-sm       (read-record       in (read-str in (read-sm-count in)))
+        ;; id-record-md       (read-record       in (read-str in (read-md-count in)))
+        ;; id-record-lg       (read-record       in (read-str in (read-lg-count in)))
 
-        id-serializable-q-sm  (read-serializable-q  in (read-str in (read-sm-count in)))
-        id-serializable-q-md  (read-serializable-q  in (read-str in (read-md-count in)))
+        ;; id-serializable-q-sm  (read-serializable-q  in (read-str in (read-sm-count in)))
+        ;; id-serializable-q-md  (read-serializable-q  in (read-str in (read-md-count in)))
 
-        id-serializable-uq-sm (read-serializable-uq in (read-str in (read-sm-count in)))
-        id-serializable-uq-md (read-serializable-uq in (read-str in (read-md-count in)))
-        id-serializable-uq-lg (read-serializable-uq in (read-str in (read-lg-count in)))
+        ;; id-serializable-uq-sm (read-serializable-uq in (read-str in (read-sm-count in)))
+        ;; id-serializable-uq-md (read-serializable-uq in (read-str in (read-md-count in)))
+        ;; id-serializable-uq-lg (read-serializable-uq in (read-str in (read-lg-count in)))
 
-        id-type        (read-type in (thaw-from-in! in))
+        ;; id-type        (read-type in (thaw-from-in! in))
 
-        id-nil         nil
-        id-true        true
-        id-false       false
-        id-char        (.readChar in)
-        id-meta        (let [m (thaw-from-in! in)]
-                         (if *incl-metadata?*
-                           (with-meta (thaw-from-in! in) m)
-                           (do        (thaw-from-in! in))))
+        ;; id-nil         nil
+        ;; id-true        true
+        ;; id-false       false
+        ;; id-char        (.readChar in)
+        ;; id-meta        (let [m (thaw-from-in! in)]
+        ;;                  (if *incl-metadata?*
+        ;;                    (with-meta (thaw-from-in! in) m)
+        ;;                    (do        (thaw-from-in! in))))
 
-        id-cached-0    (thaw-cached 0 in)
-        id-cached-1    (thaw-cached 1 in)
-        id-cached-2    (thaw-cached 2 in)
-        id-cached-3    (thaw-cached 3 in)
-        id-cached-4    (thaw-cached 4 in)
-        id-cached-5    (thaw-cached 5 in)
-        id-cached-6    (thaw-cached 6 in)
-        id-cached-7    (thaw-cached 7 in)
-        id-cached-sm   (thaw-cached (read-sm-count in) in)
-        id-cached-md   (thaw-cached (read-md-count in) in)
+        ;; id-cached-0    (thaw-cached 0 in)
+        ;; id-cached-1    (thaw-cached 1 in)
+        ;; id-cached-2    (thaw-cached 2 in)
+        ;; id-cached-3    (thaw-cached 3 in)
+        ;; id-cached-4    (thaw-cached 4 in)
+        ;; id-cached-5    (thaw-cached 5 in)
+        ;; id-cached-6    (thaw-cached 6 in)
+        ;; id-cached-7    (thaw-cached 7 in)
+        ;; id-cached-sm   (thaw-cached (read-sm-count in) in)
+        ;; id-cached-md   (thaw-cached (read-md-count in) in)
 
-        id-bytes-0     (byte-array 0)
-        id-bytes-sm    (read-bytes in (read-sm-count in))
-        id-bytes-md    (read-bytes in (read-md-count in))
-        id-bytes-lg    (read-bytes in (read-lg-count in))
+        ;; id-bytes-0     (byte-array 0)
+        ;; id-bytes-sm    (read-bytes in (read-sm-count in))
+        ;; id-bytes-md    (read-bytes in (read-md-count in))
+        ;; id-bytes-lg    (read-bytes in (read-lg-count in))
 
-        id-objects-lg  (read-objects (object-array (read-lg-count in)) in)
+        ;; id-objects-lg  (read-objects (object-array (read-lg-count in)) in)
 
         id-str-0       ""
-        id-str-sm               (read-bytes in (read-sm-count in))
-        id-str-md               (read-bytes in (read-md-count in))
-        id-str-lg               (read-bytes in (read-lg-count in))
+        id-str-sm               (read-bytes in to (read-sm-count in))
+        id-str-md               (read-bytes in to (read-md-count in))
+        id-str-lg               (read-bytes in to (read-lg-count in))
 
-        id-kw-sm       (read-bytes in (read-sm-count in))
-        id-kw-md       (read-bytes in (read-md-count in))
-        id-kw-md-depr1 (read-bytes in (read-lg-count in))
-        id-kw-lg       (read-bytes in (read-lg-count in))
+        id-kw-sm       (read-bytes in to (read-sm-count in))
+        id-kw-md       (read-bytes in to (read-md-count in))
+        id-kw-md-depr1 (read-bytes in to (read-lg-count in))
+        id-kw-lg       (read-bytes in to (read-lg-count in))
 
-        id-sym-sm       (symbol  (read-str in (read-sm-count in)))
-        id-sym-md       (symbol  (read-str in (read-md-count in)))
-        id-sym-md-depr1 (symbol  (read-str in (read-lg-count in)))
-        id-sym-lg       (symbol  (read-str in (read-lg-count in)))
-        id-regex        (re-pattern (thaw-from-in! in))
+        ;; id-sym-sm       (symbol  (read-str in (read-sm-count in)))
+        ;; id-sym-md       (symbol  (read-str in (read-md-count in)))
+        ;; id-sym-md-depr1 (symbol  (read-str in (read-lg-count in)))
+        ;; id-sym-lg       (symbol  (read-str in (read-lg-count in)))
+        ;; id-regex        (re-pattern (thaw-from-in! in))
 
-        id-vec-0       []
-        id-vec-2       [(thaw-from-in! in) (thaw-from-in! in)]
-        id-vec-3       [(thaw-from-in! in) (thaw-from-in! in) (thaw-from-in! in)]
-        id-vec-sm      (read-into [] in (read-sm-count in))
-        id-vec-md      (read-into [] in (read-md-count in))
-        id-vec-lg      (read-into [] in (read-lg-count in))
+        ;; id-vec-0       []
+        ;; id-vec-2       [(thaw-from-in! in) (thaw-from-in! in)]
+        ;; id-vec-3       [(thaw-from-in! in) (thaw-from-in! in) (thaw-from-in! in)]
+        ;; id-vec-sm      (read-into [] in (read-sm-count in))
+        ;; id-vec-md      (read-into [] in (read-md-count in))
+        ;; id-vec-lg      (read-into [] in (read-lg-count in))
 
-        id-set-0       #{}
-        id-set-sm      (read-into    #{} in (read-sm-count in))
-        id-set-md      (read-into    #{} in (read-md-count in))
-        id-set-lg      (read-into    #{} in (read-lg-count in))
+        ;; id-set-0       #{}
+        ;; id-set-sm      (read-into    #{} in (read-sm-count in))
+        ;; id-set-md      (read-into    #{} in (read-md-count in))
+        ;; id-set-lg      (read-into    #{} in (read-lg-count in))
 
-        id-map-0       {}
-        id-map-sm      (read-kvs-into {} in (read-sm-count in))
-        id-map-md      (read-kvs-into {} in (read-md-count in))
-        id-map-lg      (read-kvs-into {} in (read-lg-count in))
+        ;; id-map-0       {}
+        ;; id-map-sm      (read-kvs-into {} in (read-sm-count in))
+        ;; id-map-md      (read-kvs-into {} in (read-md-count in))
+        ;; id-map-lg      (read-kvs-into {} in (read-lg-count in))
 
-        id-queue       (read-into (PersistentQueue/EMPTY) in (read-lg-count in))
-        id-sorted-set  (read-into     (sorted-set)        in (read-lg-count in))
-        id-sorted-map  (read-kvs-into (sorted-map)        in (read-lg-count in))
+        ;; id-queue       (read-into (PersistentQueue/EMPTY) in (read-lg-count in))
+        ;; id-sorted-set  (read-into     (sorted-set)        in (read-lg-count in))
+        ;; id-sorted-map  (read-kvs-into (sorted-map)        in (read-lg-count in))
 
-        id-list-0      '()
-        id-list-sm     (into '() (rseq (read-into [] in (read-sm-count in))))
-        id-list-md     (into '() (rseq (read-into [] in (read-md-count in))))
-        id-list-lg     (into '() (rseq (read-into [] in (read-lg-count in))))
+        ;; id-list-0      '()
+        ;; id-list-sm     (into '() (rseq (read-into [] in (read-sm-count in))))
+        ;; id-list-md     (into '() (rseq (read-into [] in (read-md-count in))))
+        ;; id-list-lg     (into '() (rseq (read-into [] in (read-lg-count in))))
 
-        id-seq-0       (lazy-seq nil)
-        id-seq-sm      (or (seq (read-into [] in (read-sm-count in))) (lazy-seq nil))
-        id-seq-md      (or (seq (read-into [] in (read-md-count in))) (lazy-seq nil))
-        id-seq-lg      (or (seq (read-into [] in (read-lg-count in))) (lazy-seq nil))
+        ;; id-seq-0       (lazy-seq nil)
+        ;; id-seq-sm      (or (seq (read-into [] in (read-sm-count in))) (lazy-seq nil))
+        ;; id-seq-md      (or (seq (read-into [] in (read-md-count in))) (lazy-seq nil))
+        ;; id-seq-lg      (or (seq (read-into [] in (read-lg-count in))) (lazy-seq nil))
 
-        id-byte              (.readByte  in)
-        id-short             (.readShort in)
-        id-integer           (.readInt   in)
-        id-long-zero   0
-        id-long-sm     (long (.readByte  in))
-        id-long-md     (long (.readShort in))
-        id-long-lg     (long (.readInt   in))
-        id-long-xl           (.readLong  in)
+        ;; id-byte              (.readByte  in)
+        ;; id-short             (.readShort in)
+        ;; id-integer           (.readInt   in)
+        ;; id-long-zero   0
+        ;; id-long-sm     (long (.readByte  in))
+        ;; id-long-md     (long (.readShort in))
+        ;; id-long-lg     (long (.readInt   in))
+        ;; id-long-xl           (.readLong  in)
 
-        id-bigint      (bigint (read-biginteger in))
-        id-biginteger          (read-biginteger in)
+        ;; id-bigint      (bigint (read-biginteger in))
+        ;; id-biginteger          (read-biginteger in)
 
-        id-float       (.readFloat  in)
-        id-double-zero 0.0
-        id-double      (.readDouble in)
-        id-bigdec      (BigDecimal. ^BigInteger (read-biginteger in) (.readInt in))
+        ;; id-float       (.readFloat  in)
+        ;; id-double-zero 0.0
+        ;; id-double      (.readDouble in)
+        ;; id-bigdec      (BigDecimal. ^BigInteger (read-biginteger in) (.readInt in))
 
-        id-ratio       (clojure.lang.Ratio.
-                         (read-biginteger in)
-                         (read-biginteger in))
+        ;; id-ratio       (clojure.lang.Ratio.
+        ;;                  (read-biginteger in)
+        ;;                  (read-biginteger in))
 
-        id-date        (Date. (.readLong in))
-        id-uri         (URI. (thaw-from-in! in))
-        id-uuid        (UUID. (.readLong in) (.readLong in))
+        ;; id-date        (Date. (.readLong in))
+        ;; id-uri         (URI. (thaw-from-in! in))
+        ;; id-uuid        (UUID. (.readLong in) (.readLong in))
 
-        id-time-instant
-        (let [secs  (.readLong in)
-              nanos (.readInt  in)]
+        ;; id-time-instant
+        ;; (let [secs  (.readLong in)
+        ;;       nanos (.readInt  in)]
 
-          (enc/compile-if java.time.Instant
-            (java.time.Instant/ofEpochSecond secs nanos)
-            {:nippy/unthawable
-             {:type  :class
-              :cause :class-not-found
+        ;;   (enc/compile-if java.time.Instant
+        ;;     (java.time.Instant/ofEpochSecond secs nanos)
+        ;;     {:nippy/unthawable
+        ;;      {:type  :class
+        ;;       :cause :class-not-found
 
-              :class-name "java.time.Instant"
-              :content    {:epoch-second secs :nano nanos}}}))
+        ;;       :class-name "java.time.Instant"
+        ;;       :content    {:epoch-second secs :nano nanos}}}))
 
-        id-time-duration
-        (let [secs  (.readLong in)
-              nanos (.readInt  in)]
+        ;; id-time-duration
+        ;; (let [secs  (.readLong in)
+        ;;       nanos (.readInt  in)]
 
-          (enc/compile-if java.time.Duration
-            (java.time.Duration/ofSeconds secs nanos)
-            {:nippy/unthawable
-             {:type  :class
-              :cause :class-not-found
+        ;;   (enc/compile-if java.time.Duration
+        ;;     (java.time.Duration/ofSeconds secs nanos)
+        ;;     {:nippy/unthawable
+        ;;      {:type  :class
+        ;;       :cause :class-not-found
 
-              :class-name "java.time.Duration"
-              :content    {:seconds secs :nanos nanos}}}))
+        ;;       :class-name "java.time.Duration"
+        ;;       :content    {:seconds secs :nanos nanos}}}))
 
-        id-time-period
-        (let [years  (.readInt in)
-              months (.readInt in)
-              days   (.readInt in)]
+        ;; id-time-period
+        ;; (let [years  (.readInt in)
+        ;;       months (.readInt in)
+        ;;       days   (.readInt in)]
 
-          (enc/compile-if java.time.Period
-            (java.time.Period/of years months days)
-            {:nippy/unthawable
-             {:type  :class
-              :cause :class-not-found
+        ;;   (enc/compile-if java.time.Period
+        ;;     (java.time.Period/of years months days)
+        ;;     {:nippy/unthawable
+        ;;      {:type  :class
+        ;;       :cause :class-not-found
 
-              :class-name "java.time.Period"
-              :content    {:years years :months months :days days}}}))
+        ;;       :class-name "java.time.Period"
+        ;;       :content    {:years years :months months :days days}}}))
 
-        ;; Deprecated ------------------------------------------------------
-        id-boolean-depr1    (.readBoolean in)
-        id-sorted-map-depr1 (read-kvs-depr1 (sorted-map) in)
-        id-map-depr2        (read-kvs-depr1 {} in)
-        id-reader-depr1     (read-edn (.readUTF in))
-        id-str-depr1                  (.readUTF in)
-        id-kw-depr1         (keyword  (.readUTF in))
-        id-map-depr1        (apply hash-map
-                              (enc/repeatedly-into [] (* 2 (.readInt in))
-                                (fn [] (thaw-from-in! in))))
-        ;; -----------------------------------------------------------------
+        ;; ;; Deprecated ------------------------------------------------------
+        ;; id-boolean-depr1    (.readBoolean in)
+        ;; id-sorted-map-depr1 (read-kvs-depr1 (sorted-map) in)
+        ;; id-map-depr2        (read-kvs-depr1 {} in)
+        ;; id-reader-depr1     (read-edn (.readUTF in))
+        ;; id-str-depr1                  (.readUTF in)
+        ;; id-kw-depr1         (keyword  (.readUTF in))
+        ;; id-map-depr1        (apply hash-map
+        ;;                       (enc/repeatedly-into [] (* 2 (.readInt in))
+        ;;                         (fn [] (thaw-from-in! in))))
+        ;; ;; -----------------------------------------------------------------
 
-        id-prefixed-custom (read-custom! in :prefixed (.readShort in))
+        ;; id-prefixed-custom (read-custom! in :prefixed (.readShort in))
 
-        (if (neg? type-id)
-          (read-custom! in nil type-id) ; Unprefixed custom type
-          (throw
-            (ex-info
-              (str "Unrecognized type id (" type-id "). Data frozen with newer Nippy version?")
-              {:type-id type-id}))))
-
+        ;; (if (neg? type-id)
+        ;;   (read-custom! in nil type-id) ; Unprefixed custom type
+        ;;   (throw
+        ;;     (ex-info
+        ;;       (str "Unrecognized type id (" type-id "). Data frozen with newer Nippy version?")
+        ;;       {:type-id type-id}))))
+        )
       (catch Exception e
         (throw (ex-info (str "Thaw failed against type-id: " type-id)
                  {:type-id type-id} e))))))
