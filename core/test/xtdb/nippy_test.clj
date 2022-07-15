@@ -25,9 +25,19 @@
                         (mem/<-nippy-buffer vb)]))
                 (into {})))))
 
-(t/deftest test-find-eid
+#_(t/deftest test-find-eid
   (t/is (= :ivan
            (->> {:name "Ivan" :crux.db/id :ivan}
                 mem/->nippy-buffer
                 nu/doc->eid
                 mem/<-nippy-buffer))))
+
+#_(t/deftest test-doc-to-map-of-slices
+  (t/is (= {:xt/id "ivan" :name "Ivan" :nested {:a :b}}
+           (->> {:xt/id "ivan" :name "Ivan" :nested {:a :b}}
+                mem/->nippy-buffer
+                nu/doc->kv-slices
+                (map (fn [[kb vb]]
+                       [(mem/<-nippy-buffer kb)
+                        (mem/<-nippy-buffer vb)]))
+                (into {})))))
