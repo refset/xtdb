@@ -5,39 +5,10 @@
              [xtdb.nippy-utils :as nu])
   (:import [org.agrona DirectBuffer]))
 
-(t/deftest test-sanity-check
-  (t/is (= {:xt/id "ivan" :name "Ivan"}
-           (->> {:xt/id "ivan" :name "Ivan"}
-                mem/->nippy-buffer
-                nu/doc->kvs
-                (map (fn [[kb vb]]
-                       [(mem/<-nippy-buffer kb)
-                        (mem/<-nippy-buffer vb)]))
-                (into {})))))
-
-(t/deftest test-nested-map
-  (t/is (= {:xt/id "ivan" :name "Ivan" :nested {:a :b}}
-           (->> {:xt/id "ivan" :name "Ivan" :nested {:a :b}}
-                mem/->nippy-buffer
-                nu/doc->kvs
-                (map (fn [[kb vb]]
-                       [(mem/<-nippy-buffer kb)
-                        (mem/<-nippy-buffer vb)]))
-                (into {})))))
-
-#_(t/deftest test-find-eid
+(t/deftest test-find-eid
   (t/is (= :ivan
-           (->> {:name "Ivan" :crux.db/id :ivan}
+           (->> {:name "Ivan" :att1 #{:foo #{:bar {:baz :qux}}} :att2 {:foo {:bar :baz}} :crux.db/id :ivan :att3 :val}
                 mem/->nippy-buffer
-                nu/doc->eid
+                (#(let [[offset len] (nu/doc->eid-offset-and-len %)]
+                    (mem/slice-buffer % offset len)))
                 mem/<-nippy-buffer))))
-
-#_(t/deftest test-doc-to-map-of-slices
-  (t/is (= {:xt/id "ivan" :name "Ivan" :nested {:a :b}}
-           (->> {:xt/id "ivan" :name "Ivan" :nested {:a :b}}
-                mem/->nippy-buffer
-                nu/doc->kv-slices
-                (map (fn [[kb vb]]
-                       [(mem/<-nippy-buffer kb)
-                        (mem/<-nippy-buffer vb)]))
-                (into {})))))
