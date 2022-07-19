@@ -1,5 +1,6 @@
 (ns xtdb.nippy-utils
   (:require [xtdb.nippy-fork :as nippyf]
+            [xtdb.codec :as c]
             [xtdb.memory :as mem]
             [juxt.clojars-mirrors.encore.v3v21v0.taoensso.encore :as enc])
   (:import [java.util.function Supplier]
@@ -443,6 +444,21 @@
           [0 v-offset 0] ;; id-vec-0
           [coll-count v-offset (get-len buf v-offset)])))))
 
+(defn nippy-buffer->xt-id-buffer [^UnsafeBuffer to ^MutableDirectBuffer buf ^Integer offset ^Integer len]
+  (let [clen
+        (enc/case-eval (.getByte buf offset)
+          id-kw-sm        sm-count
+          id-kw-md        md-count
+          id-kw-lg        lg-count
+          (do false))]
+    (if (false? clen)
+      (let [_ (.wrap to buf offset len)
+            b (c/->id-buffer (mem/<-nippy-buffer to))]
+        (.wrap to b 0 (.capacity b)))
+      (let [_ (.wrap to buf ^Integer (+ offset 1 clen) ^Integer (- len clen 1))
+            b (c/id-function (mem/allocate-buffer c/id-size) to)]
+        (.wrap to b 0 (.capacity b))))))
+
 (defn doc-kv-visit
   "Extract encoded eid"
   [^MutableDirectBuffer buf f]
@@ -460,7 +476,7 @@
     (loop [k-offset ^Integer (inc clen)
            k-len ^Integer (get-len buf k-offset)
            [v-coll-count ^Integer v-offset ^Integer v-len] (get-coll-count-and-first-offset-len buf (+ k-offset k-len))]
-      (.wrap att-buf buf k-offset k-len) ;; TODO nippy-buffer->xtdb-id-buffer skip the first 2/3/4 bytes and dec from the len! (other types thaw and process as normal)
+      (nippy-buffer->xt-id-buffer att-buf buf k-offset k-len)
       (when (> v-coll-count 0)
         (.wrap val-buf buf v-offset v-len) ;; TODO nippy-buffer->xtdb-value-buffer
         (f eid-buf att-buf val-buf))
@@ -480,14 +496,6 @@
 
 
 
-;; a is an id-buffer
 ;; index-store helper buffer-or-value-buffer uses c/->value-buffer, for v and e
 ;; thaw-from-in! and value->buffer on all types, except priorities, e.g. strings/keywords >224 bytes
-
-;; do a first
-;; Keyword
-;; (id->buffer [this to]
-;;             (id-function to (.getBytes (subs (str this) 1) StandardCharsets/UTF_8)))
-;; just need to slice the keyword buf to the exact length of value (skip type and clen)
-
 ;; v and e should be symmetrical, and luckily e only happens once
