@@ -385,6 +385,18 @@
      (get [_]
        (UnsafeBuffer.)))))
 
+(def ^:private ^ThreadLocal att-buffer-tl
+  (ThreadLocal/withInitial
+   (reify Supplier
+     (get [_]
+       (UnsafeBuffer.)))))
+
+(def ^:private ^ThreadLocal val-buffer-tl
+  (ThreadLocal/withInitial
+   (reify Supplier
+     (get [_]
+       (UnsafeBuffer.)))))
+
 (defn doc->eid-offset-and-len
   "Extract encoded eid"
   [^MutableDirectBuffer buf]
@@ -395,12 +407,87 @@
           id-map-lg lg-count
           (throw (AssertionError. "Invalid Nippy document")))
         eid-buf ^UnsafeBuffer (.get eid-buffer-tl)]
-    (loop [k-offset ^Long (inc clen)]
-      (let [k-len ^Long (get-len buf k-offset)
+    (loop [k-offset ^Integer (inc clen)]
+      (let [k-len ^Integer (get-len buf k-offset)
             v-offset (+ k-offset k-len)
-            v-len (get-len buf v-offset)]
+            v-len ^Integer (get-len buf v-offset)]
         (.wrap eid-buf buf k-offset k-len)
         (if (mem/buffers=? idkb eid-buf)
           [v-offset
            v-len]
-          (recur (long (+ v-offset v-len))))))))
+          (recur (+ v-offset v-len)))))))
+
+(defn get-coll-count-and-first-offset-len [^MutableDirectBuffer buf offset]
+  (let [coll-clen (enc/case-eval (.getByte buf offset)
+                    id-set-sm      sm-count
+                    id-set-md      md-count
+                    id-set-lg      lg-count
+                    id-vec-0 0
+                    id-vec-2 0
+                    id-vec-3 0
+                    id-vec-sm sm-count
+                    id-vec-md md-count
+                    id-vec-lg lg-count
+                    (do false))]
+    (if (false? coll-clen)
+      [1 offset (get-len buf offset)]
+      (let [offset* (inc offset)
+            coll-count (or (and coll-clen
+                                (enc/case-eval (int coll-clen)
+                                  sm-count (get-sm-count buf offset*)
+                                  md-count (get-md-count buf offset*)
+                                  lg-count (get-lg-count buf offset*)))
+                           0)
+            v-offset (+ offset* coll-clen)]
+        (if (= coll-count 0)
+          [0 v-offset 0] ;; id-vec-0
+          [coll-count v-offset (get-len buf v-offset)])))))
+
+(defn doc-kv-visit
+  "Extract encoded eid"
+  [^MutableDirectBuffer buf f]
+  (let [clen
+        (enc/case-eval (.getByte buf 0)
+          id-map-sm sm-count
+          id-map-md md-count
+          id-map-lg lg-count
+          (throw (AssertionError. "Invalid Nippy document")))
+        eid-buf ^UnsafeBuffer (.get eid-buffer-tl)
+        att-buf ^UnsafeBuffer (.get att-buffer-tl)
+        val-buf ^UnsafeBuffer (.get val-buffer-tl)]
+    (let [[offset len] (doc->eid-offset-and-len buf)]
+      (.wrap eid-buf buf ^Integer offset ^Integer len)) ;; TODO nippy-buffer->xtdb-value-buffer
+    (loop [k-offset ^Integer (inc clen)
+           k-len ^Integer (get-len buf k-offset)
+           [v-coll-count ^Integer v-offset ^Integer v-len] (get-coll-count-and-first-offset-len buf (+ k-offset k-len))]
+      (.wrap att-buf buf k-offset k-len) ;; TODO nippy-buffer->xtdb-id-buffer skip the first 2/3/4 bytes and dec from the len! (other types thaw and process as normal)
+      (when (> v-coll-count 0)
+        (.wrap val-buf buf v-offset v-len) ;; TODO nippy-buffer->xtdb-value-buffer
+        (f eid-buf att-buf val-buf))
+      (when (< (+ v-offset v-len) (.capacity buf))
+        (let [next-offset (+ v-offset v-len)
+              [k-offset* k-len* [v-coll-count* ^Integer v-offset* ^Integer v-len*]]
+              (if (= v-coll-count 1)
+                (let [k-offset* next-offset
+                      k-len* ^Integer (get-len buf k-offset*)]
+                  [k-offset*
+                   k-len*
+                   (get-coll-count-and-first-offset-len buf (+ k-offset* k-len*))])
+                [k-offset k-len [(dec v-coll-count) next-offset (get-len buf next-offset)]])]
+          (recur k-offset*
+                 k-len*
+                 [v-coll-count* v-offset* v-len*]))))))
+
+
+
+;; a is an id-buffer
+;; index-store helper buffer-or-value-buffer uses c/->value-buffer, for v and e
+;; thaw-from-in! and value->buffer on all types, except priorities, e.g. strings/keywords >224 bytes
+
+;; do a first
+;; Keyword
+;; (id->buffer [this to]
+;;             (id-function to (.getBytes (subs (str this) 1) StandardCharsets/UTF_8)))
+;; just need to slice the keyword buf to the exact length of value (skip type and clen)
+
+;; v and e should be symmetrical, and luckily e only happens once
