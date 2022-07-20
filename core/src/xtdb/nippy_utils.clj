@@ -459,6 +459,21 @@
             b (c/id-function (mem/allocate-buffer c/id-size) to)]
         (.wrap to b 0 (.capacity b))))))
 
+(defn nippy-buffer->xt-value-buffer [^UnsafeBuffer to ^MutableDirectBuffer buf ^Integer offset ^Integer len]
+  (let [clen
+        (enc/case-eval (.getByte buf offset)
+      ;    id-kw-sm        sm-count
+      ;    id-kw-md        md-count
+      ;    id-kw-lg        lg-count
+          (do false))]
+    (if (false? clen)
+      (let [_ (.wrap to buf offset len)
+            b (c/->value-buffer (mem/<-nippy-buffer to))]
+        (.wrap to b 0 (.capacity b)))
+      (let [_ (.wrap to buf ^Integer (+ offset 1 clen) ^Integer (- len clen 1))
+            b (c/id-function (mem/allocate-buffer c/id-size) to)]
+        (.wrap to b 0 (.capacity b))))))
+
 (defn doc-kv-visit
   "Extract encoded eid"
   [^MutableDirectBuffer buf f]
@@ -472,13 +487,13 @@
         att-buf ^UnsafeBuffer (.get att-buffer-tl)
         val-buf ^UnsafeBuffer (.get val-buffer-tl)]
     (let [[offset len] (doc->eid-offset-and-len buf)]
-      (.wrap eid-buf buf ^Integer offset ^Integer len)) ;; TODO nippy-buffer->xtdb-value-buffer
+      (nippy-buffer->xt-value-buffer eid-buf buf offset len))
     (loop [k-offset ^Integer (inc clen)
            k-len ^Integer (get-len buf k-offset)
            [v-coll-count ^Integer v-offset ^Integer v-len] (get-coll-count-and-first-offset-len buf (+ k-offset k-len))]
       (nippy-buffer->xt-id-buffer att-buf buf k-offset k-len)
       (when (> v-coll-count 0)
-        (.wrap val-buf buf v-offset v-len) ;; TODO nippy-buffer->xtdb-value-buffer
+        (nippy-buffer->xt-value-buffer val-buf buf v-offset v-len)
         (f eid-buf att-buf val-buf))
       (when (< (+ v-offset v-len) (.capacity buf))
         (let [next-offset (+ v-offset v-len)

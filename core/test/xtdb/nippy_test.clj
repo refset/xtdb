@@ -15,12 +15,16 @@
                 mem/<-nippy-buffer))))
 
 (t/deftest test-kv-visit
-  (t/is (= [[:ivan (mem/buffer->hex (c/->id-buffer :name)) "Ivan"]
-            [:ivan (mem/buffer->hex (c/->id-buffer :att1)) :foo]
-            [:ivan (mem/buffer->hex (c/->id-buffer :att1)) #{{:baz :qux} :bar}]
-            [:ivan (mem/buffer->hex (c/->id-buffer :att2)) {:foo {:bar :baz}}]
-            [:ivan (mem/buffer->hex (c/->id-buffer :crux.db/id)) :ivan]
-            [:ivan (mem/buffer->hex (c/->id-buffer :att3)) :val]]
+  (t/is (= (map (fn [[e a v]]
+                  [(mem/buffer->hex (c/->value-buffer e))
+                   (mem/buffer->hex (c/->id-buffer a))
+                   (mem/buffer->hex (c/->value-buffer v))])
+                [[:ivan :name "Ivan"]
+                 [:ivan :att1 :foo]
+                 [:ivan :att1 #{{:baz :qux} :bar}]
+                 [:ivan :att2 {:foo {:bar :baz}}]
+                 [:ivan :crux.db/id :ivan]
+                 [:ivan :att3 :val]])
            (let [bufs (atom [])]
              (-> {:name "Ivan"
                   :att1 #{:foo #{:bar {:baz :qux}}}
@@ -29,7 +33,5 @@
                   :att3 :val}
                  mem/->nippy-buffer
                  (nu/doc-kv-visit (fn [e a v]
-                                    (swap! bufs conj [(mem/<-nippy-buffer e)
-                                                      (mem/buffer->hex a)
-                                                      (mem/<-nippy-buffer v)]))))
+                                    (swap! bufs conj (doall (map mem/buffer->hex [e a v]))))))
              @bufs))))
