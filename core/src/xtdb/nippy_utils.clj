@@ -460,16 +460,21 @@
         (.wrap to b 0 (.capacity b))))))
 
 (defn nippy-buffer->xt-value-buffer [^UnsafeBuffer to ^MutableDirectBuffer buf ^Integer offset ^Integer len]
-  (let [clen
-        (enc/case-eval (.getByte buf offset)
+  (let [type-id (.getByte buf offset)
+        clen
+        (enc/case-eval type-id
       ;    id-kw-sm        sm-count
       ;    id-kw-md        md-count
       ;    id-kw-lg        lg-count
           (do false))]
     (if (false? clen)
-      (let [_ (.wrap to buf offset len)
-            b (c/->value-buffer (mem/<-nippy-buffer to))]
-        (.wrap to b 0 (.capacity b)))
+      (enc/case-eval type-id
+        id-nil (doto to
+                 (.putByte 0 c/nil-value-type-id)
+                 (.wrap to 0 c/value-type-id-size))
+        (let [_ (.wrap to buf offset len)
+              b (c/->value-buffer (mem/<-nippy-buffer to))]
+          (.wrap to b 0 (.capacity b))))
       (let [_ (.wrap to buf ^Integer (+ offset 1 clen) ^Integer (- len clen 1))
             b (c/id-function (mem/allocate-buffer c/id-size) to)]
         (.wrap to b 0 (.capacity b))))))

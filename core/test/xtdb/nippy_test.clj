@@ -15,23 +15,25 @@
                 mem/<-nippy-buffer))))
 
 (t/deftest test-kv-visit
-  (t/is (= (map (fn [[e a v]]
-                  [(mem/buffer->hex (c/->value-buffer e))
-                   (mem/buffer->hex (c/->id-buffer a))
-                   (mem/buffer->hex (c/->value-buffer v))])
-                [[:ivan :name "Ivan"]
-                 [:ivan :att1 :foo]
-                 [:ivan :att1 #{{:baz :qux} :bar}]
-                 [:ivan :att2 {:foo {:bar :baz}}]
-                 [:ivan :crux.db/id :ivan]
-                 [:ivan :att3 :val]])
-           (let [bufs (atom [])]
-             (-> {:name "Ivan"
-                  :att1 #{:foo #{:bar {:baz :qux}}}
-                  :att2 {:foo {:bar :baz}}
-                  :crux.db/id :ivan
-                  :att3 :val}
-                 mem/->nippy-buffer
-                 (nu/doc-kv-visit (fn [e a v]
-                                    (swap! bufs conj (doall (map mem/buffer->hex [e a v]))))))
-             @bufs))))
+  (let [map->eavs (fn map->eavs [m]
+                    (let [e (:crux.db/id m)]
+                      (reduce (fn [acc [a v]]
+                                (apply conj acc (for [v (c/vectorize-value v)]
+                                                  (into [e] [a v]))))
+                              [] m)))
+        m {:name "Ivan"
+           :att1 #{:foo #{:bar {:baz :qux}}}
+           :att2 {:foo {:bar :baz}}
+           :crux.db/id :ivan
+           :att3 nil}]
+    (t/is (= (sort (map (fn [[e a v]]
+                          [(mem/buffer->hex (c/->value-buffer e))
+                           (mem/buffer->hex (c/->id-buffer a))
+                           (mem/buffer->hex (c/->value-buffer v))])
+                        (map->eavs m)))
+             (let [bufs (atom [])]
+               (-> m
+                   mem/->nippy-buffer
+                   (nu/doc-kv-visit (fn [e a v]
+                                      (swap! bufs conj (doall (mapv mem/buffer->hex [e a v]))))))
+               (sort @bufs))))))
