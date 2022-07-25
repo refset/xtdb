@@ -4,7 +4,7 @@
             [xtdb.memory :as mem]
             [juxt.clojars-mirrors.encore.v3v21v0.taoensso.encore :as enc])
   (:import [java.util.function Supplier]
-           [org.agrona MutableDirectBuffer]
+           [org.agrona MutableDirectBuffer ExpandableDirectByteBuffer]
            [org.agrona.concurrent UnsafeBuffer]))
 
 ;; nippy.clj VERBATIM START
@@ -380,6 +380,24 @@
 
 (def idkb (mem/->nippy-buffer :crux.db/id))
 
+(def ^:private ^ThreadLocal eid-ebb-tl
+  (ThreadLocal/withInitial
+   (reify Supplier
+     (get [_]
+       (ExpandableDirectByteBuffer.)))))
+
+(def ^:private ^ThreadLocal att-b-tl
+  (ThreadLocal/withInitial
+   (reify Supplier
+     (get [_]
+       (mem/allocate-buffer c/id-size)))))
+
+(def ^:private ^ThreadLocal val-ebb-tl
+  (ThreadLocal/withInitial
+   (reify Supplier
+     (get [_]
+       (ExpandableDirectByteBuffer.)))))
+
 (def ^:private ^ThreadLocal eid-buffer-tl
   (ThreadLocal/withInitial
    (reify Supplier
@@ -456,7 +474,7 @@
             b (c/->id-buffer (mem/<-nippy-buffer to))]
         (.wrap to b 0 (.capacity b)))
       (let [_ (.wrap to buf ^Integer (+ offset 1 clen) ^Integer (- len clen 1))
-            b (c/id-function (mem/allocate-buffer c/id-size) to)]
+            b (c/id-function ^ExpandableDirectByteBuffer (.get att-b-tl) to)]
         (.wrap to b 0 (.capacity b))))))
 
 (defn nippy-buffer->xt-value-buffer [^UnsafeBuffer to ^MutableDirectBuffer buf ^Integer offset ^Integer len]
@@ -472,6 +490,10 @@
         id-nil (doto to
                  (.putByte 0 c/nil-value-type-id)
                  (.wrap to 0 c/value-type-id-size))
+        id-true (doto to
+                  (.putByte 0 c/boolean-value-type-id)
+                  (.putByte c/value-type-id-size 1)
+                  (.wrap to 0 (+ c/value-type-id-size Byte/BYTES)))
         (let [_ (.wrap to buf offset len)
               b (c/->value-buffer (mem/<-nippy-buffer to))]
           (.wrap to b 0 (.capacity b))))

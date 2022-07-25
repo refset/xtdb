@@ -25,7 +25,8 @@
            :att1 #{:foo #{:bar {:baz :qux}}}
            :att2 {:foo {:bar :baz}}
            :crux.db/id :ivan
-           :att3 nil}]
+         ;  :att3 nil
+         #_ #_  :att4 true}]
     (t/is (= (sort (map (fn [[e a v]]
                           [(mem/buffer->hex (c/->value-buffer e))
                            (mem/buffer->hex (c/->id-buffer a))
