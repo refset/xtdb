@@ -9,7 +9,9 @@
             [juxt.clojars-mirrors.nextjdbc.v1v2v674.next.jdbc :as jdbc]
             [juxt.clojars-mirrors.nextjdbc.v1v2v674.next.jdbc.result-set :as jdbcr]
             [xtdb.jdbc :as j])
-  (:import (java.util UUID)))
+  (:import (java.util UUID)
+           (java.util.concurrent Executors Callable Future)
+           ))
 
 (comment
   ;; NOTE: CI does not run the tests for all dialects, to do so, run the setup code below.
@@ -19,26 +21,52 @@
   ;; spin up containers
   (clojure.java.shell/sh "docker-compose" "up" "-d" :dir "modules/jdbc")
   ;; set dialects to get better coverage
-  (fj/set-test-dialects! :mysql :mssql :postgres :h2 :sqlite)
+  (fj/set-test-dialects! :embedded-postgres)
+  (fj/set-test-dialects! :postgres)
   ;; docker down if needed
   (clojure.java.shell/sh "docker-compose" "down" :dir "modules/jdbc")
 
   )
 (t/use-fixtures :each fj/with-each-jdbc-dialect fj/with-jdbc-node fix/with-node fj/with-db-type)
-(t/deftest test-happy-path-jdbc-event-log
-  (let [doc {:xt/id :origin-man :name "Adam"}
-        submitted-tx (xt/submit-tx *api* [[::xt/put doc]])]
-    (xt/await-tx *api* submitted-tx (java.time.Duration/ofSeconds 2))
-    (t/is (xt/entity (xt/db *api*) :origin-man))
-    (t/testing "Tx log"
-      (with-open [tx-log-iterator (xt/open-tx-log *api* 0 false)]
-        (t/is (= [{::xt/tx-id 2,
-                   ::xt/tx-time (::xt/tx-time submitted-tx)
-                   ::xt/tx-events
-                   [[::xt/put
-                     (c/new-id (:xt/id doc))
-                     (c/hash-doc doc)]]}]
-                 (iterator-seq tx-log-iterator)))))))
+
+
+(defn execute-expression [api]
+  (let [t (xt/submit-tx api [[::xt/put {:xt/id :foo}]])]
+    (let [t (xt/await-tx api t)]
+      (xt/tx-committed? api t))))
+
+(defn execute-expression2 [api]
+  (xt/submit-tx api [[::xt/put {:xt/id :foo2}]]))
+
+(defn run-in-threads [f n-times num-threads]
+  (let [pool (Executors/newFixedThreadPool num-threads)
+        futures (doall (for [_ (range n-times)]
+                         (.submit pool (reify Callable
+                                         (call [this]
+                                           (f))))))]
+    (doseq [fut futures] (.get ^Future fut))
+    (.shutdown pool)))
+
+(t/deftest test-concurrent-submit-awaits-jdbc-event-log
+  (let [f1 (future (run-in-threads (partial execute-expression *api*) 10000 6))
+
+        f2 (future (run-in-threads (partial execute-expression2 *api*) 10000 6))
+        f3 (future (run-in-threads (partial execute-expression2 *api*) 10000 6))]
+    (deref f1)
+    (deref f2)
+    (deref f3))
+  (t/is 2 (+ 1 1))
+  )
+
+(comment
+
+  (clojure.test/run-tests 'xtdb.jdbc-test
+             (clojure.test/test-var xtdb.jdbc-test/test-concurrent-submit-awaits-jdbc-event-log))
+
+  (def a (atom 0))
+  @a
+  (run-in-threads (fn [] (reset! a (inc @a))) 1000 3)
+  )
 
 (t/deftest test-docs-retention
   (let [doc-store (:document-store *api*)

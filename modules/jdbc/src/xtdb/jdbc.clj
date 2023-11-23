@@ -140,6 +140,7 @@
             (update-doc! tx id doc))))))
 
   (fetch-docs [_ ids]
+    (Thread/sleep 15)
     (xio/with-nippy-thaw-all
       (->> (for [id-batch (partition-all 100 ids)
                  row (jdbc/execute! pool (into [(format "SELECT EVENT_KEY, V FROM tx_events WHERE TOPIC = 'docs' AND EVENT_KEY IN (%s)"

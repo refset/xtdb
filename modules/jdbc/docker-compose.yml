@@ -6,20 +6,3 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_PASSWORD: postgres
-
-  mysql:
-    image: mysql:8.0.30
-    ports:
-      - "3306:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: my-secret-pw
-
-  mssql:
-    # using edge image for now due to issue with M1 https://github.com/microsoft/mssql-docker/issues/668
-    # go back to sql server when we can, but as we do not use any advanced sql server features, edge should be enough
-    image: mcr.microsoft.com/azure-sql-edge
-    ports:
-      - "1433:1433"
-    environment:
-      ACCEPT_EULA: Y
-      SA_PASSWORD: "yourStrong(!)Password"

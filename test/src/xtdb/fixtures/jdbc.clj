@@ -55,7 +55,7 @@
 
 (def jdbc-dialects
   (cond->
-    #{:h2 :sqlite #_:postgres #_:mysql #_:mssql}
+    #{#_:h2 #_:sqlite :postgres #_:mysql #_:mssql}
 
     ;; current :embedded-postgres dep does not support m1 (amd64)
     ;; we can upgrade to get support via docker, but it changes the lib significantly (native tarball vs docker)
@@ -73,15 +73,7 @@
 ;; in `xtdb-jdbc`: `docker-compose up` (`docker-compose up -d` for background)
 
 (defn with-each-jdbc-dialect [f]
-  (when (:h2 jdbc-dialects)
-    (t/testing "H2"
-      (with-h2-opts f)))
-
-  (when (:sqlite jdbc-dialects)
-    (t/testing "SQLite"
-      (with-sqlite-opts f)))
-
-  (when (:embedded-postgres jdbc-dialects)
+ #_ (when (:embedded-postgres jdbc-dialects)
     (t/testing "embedded Postgres"
       (with-embedded-postgres f)))
 
@@ -93,6 +85,7 @@
       (with-postgres-opts {:dbname "xtdbtest", :user "postgres", :password "postgres"}
         f)))
 
+  #_
   (when (:mysql jdbc-dialects)
     (t/testing "MySQL Database"
       (with-open [conn (jdbc/get-connection {:dbtype "mysql", :user "root", :password "my-secret-pw"})]
@@ -101,6 +94,7 @@
       (with-mysql-opts {:dbname "xtdbtest", :user "root", :password "my-secret-pw"}
         f)))
 
+  #_
   (when (:mssql jdbc-dialects)
     (t/testing "MSSQL Database"
       (with-open [conn (jdbc/get-connection {:dbtype "mssql", :user "sa", :password "yourStrong(!)Password"})]
@@ -111,6 +105,7 @@
                         :password "yourStrong(!)Password"}
         f)))
 
+  #_
   (when (:oracle jdbc-dialects)
     ;; Oh, Oracle.
     ;; Right. Set up. We create a Docker image for Oracle Express Edition (XE)

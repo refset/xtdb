@@ -40,7 +40,9 @@
                                                 (when (and tx (not (neg? (compare (get tx tx-k) tx-v))))
                                                   {:tx tx}))]
                                         (fn
-                                          ([] (or
+                                          ([]
+                                           nil
+                                           #_(or
                                                (tx->result (db/latest-completed-tx tx-ingester))
                                                (when-let [ingester-error (db/ingester-error tx-ingester)]
                                                  {:ingester-error ingester-error})))

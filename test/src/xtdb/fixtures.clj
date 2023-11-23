@@ -48,7 +48,8 @@
      (f))))
 
 (defn with-node [f]
-  (with-open [node (xt/start-node *opts*)]
+  (with-open [node (xt/start-node (merge *opts* {:xtdb/index-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                                                               :db-dir (str "/tmp/rocksdb" (rand 100))}}}))]
     (binding [*api* node]
       (f))))
 
