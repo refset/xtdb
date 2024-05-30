@@ -17,7 +17,7 @@
   (:import (clojure.lang MapEntry)
            (com.zaxxer.hikari HikariConfig HikariDataSource)
            (java.io Closeable)
-           (java.sql Timestamp ResultSet)
+           (java.sql Timestamp PreparedStatement ResultSet)
            (java.time Duration)
            (java.util Date Map)))
 
@@ -185,12 +185,18 @@
     (let [conn (jdbc/get-connection pool)
           require-rollback (when (= :postgresql (db-type dialect)) (.setAutoCommit conn false) true)
           sql "SELECT EVENT_OFFSET, TX_TIME, V, TOPIC FROM tx_events WHERE TOPIC = 'txs' and EVENT_OFFSET > ? ORDER BY EVENT_OFFSET"
-          stmt (doto (.prepareStatement conn sql ResultSet/TYPE_FORWARD_ONLY ResultSet/CONCUR_READ_ONLY)
-                 (.setFetchSize (if (= :mysql (db-type dialect))
-                                  Integer/MIN_VALUE
-                                  fetch-size))
-                 (.setObject 1 (or after-tx-id 0)))
-          rs (.executeQuery stmt)]
+          ^PreparedStatement stmt (try (doto (.prepareStatement conn sql ResultSet/TYPE_FORWARD_ONLY ResultSet/CONCUR_READ_ONLY)
+                                         (.setFetchSize (if (= :mysql (db-type dialect))
+                                                          Integer/MIN_VALUE
+                                                          fetch-size))
+                                         (.setObject 1 (or after-tx-id 0)))
+                                       (catch Exception e
+                                         (xio/try-close conn)
+                                         (throw e)))
+          ^ResultSet rs (try (.executeQuery stmt)
+                             (catch Exception e
+                               (run! xio/try-close [stmt conn])
+                               (throw e)))]
       (xio/->cursor (fn []
                       (try
                         (when require-rollback (.rollback conn))
