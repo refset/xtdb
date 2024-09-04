@@ -1,5 +1,5 @@
 ---
-title: Time in Finance
+title: Time in Insurance - Underwriter Workflow
 ---
 
 import Fiddle from '@components/fiddle.astro';
@@ -9,7 +9,7 @@ import QueryTemplate from "@components/fiddle/template.astro"
 import DateRange from '@components/fiddle/date-range.astro';
 import Range from "@components/fiddle/range.astro"
 
-IT systems of all kinds are plagued by many time-related complexities, from misconfigured Network Time Protocol and unexpected certificate expirations, to changing timezones and software concurrency bugs. However, systems in financial domains are additionally accutely affected by the following common requirements and challenges...
+IT systems of all kinds are plagued by many time-related complexities, from misconfigured Network Time Protocol and unexpected certificate expirations, to changing timezones and software concurrency bugs. However, systems in the insurance domain, such Policy Administration Systems, are additionally accutely affected by the following common requirements and challenges...
 
 <div class="not-content grid grid-cols-2 md:grid-cols-4 gap-2">
   <a class="border rounded p-2 hover:bg-gray-100 dark:hover:bg-gray-700 content-center text-center" href="#1-audit-and-replay-what-happened">Audit & Replay</a>
@@ -22,35 +22,63 @@ IT systems of all kinds are plagued by many time-related complexities, from misc
   <a class="border rounded p-2 hover:bg-gray-100 dark:hover:bg-gray-700 content-center text-center" href="#8-what-if-time-travelling-sources-of-truth">What If</a>
 </div>
 
+Traditional off-the-shelf Policy Administration Systems are constrained by how and when data can be updated. Insurance companies invariably need to augment these systems with workarounds to present the right data for users.
+
+Low numbers of users (e.g. a few hundred Claim Technicians) - the biggest challenge is: how do you get the right information in front of them.
+
 ## 1) Audit and Replay: what happened?
 
 SQL databases systems typically lose information whenever UPDATE or DELETE are used. They also don't record or track the any changes to data by default.
 
+Let's imagine a correspondence collection process - it deals with unstructured data, where the data may not even have an explicit name. The goal how much can you learn to get a high level of customer service?
+
+Classification (claim? submission? misc email box)
+
+Continually make it more useful, "routing the event" (e.g. might send to lexusnexus for employee count)
+
+Has this person ever filed a claim. Have we done business with them before?
+
+The journey to policy administration.
+
+(Like retail, inbound direct (messy), via broker, a REST service)
+
+Correspondence happens at a point in time, give it a checksum, anything new links back to that hash/ID
+
+Catalog when change happened, e.g. an underwriter overriding an industry code
+
+The thing that's different to CRM is that there's brokers involved, and it's more about capacity management
+
 <Fiddle>
-  <Txs txs="INSERT INTO trades (_id, price) VALUES (1, 100);" />
-  <Txs txs="UPDATE trades SET price = 150 WHERE _id = 1;" />
+  <Txs txs="INSERT INTO policies (_id, definition) VALUES (1, {foo: 'bar'});" />
+  <Txs txs="UPDATE policies SET definition = {foo: 'baz'} WHERE _id = 1;" />
   <Query q={
-`SELECT _id, price
-  FROM trades
+`SELECT *
+  FROM policies
 `}
 />
 </Fiddle>
 
-In common SQL databases, the original price '100' is lost forever, and no information about when it was last changed is recorded. Perhaps if you're sufficiently desparate and very lucky there _might_ be an old backup of the data available somewhere with a previous value.
+In common SQL databases, the original definition is lost forever, and no information about when it was last changed is recorded. Perhaps if you're sufficiently desparate and very lucky there _might_ be an old backup of the data available somewhere with a previous value.
 
 As a consequence, software engineers working in financial domains are forced to routinely confront this fundamental 'mutability' across their database systems to ensure that sufficient records are kept for satisfying auditors and regulators about exactly how have changed over time.
 
 In XTDB however, there is no need for custom audit tables or timestamp columns to litter the application schema, because a full audit history is maintained automatically, and the history of the entire database can be 'replayed' with microsecond granularity.
 
 <Fiddle magicContext="audit">
-  <Txs txs="INSERT INTO trades (_id, price) VALUES (1, 100);" />
-  <Txs txs="UPDATE trades SET price = 150 WHERE _id = 1;" />
+  <Txs txs="INSERT INTO policies (_id, definition) VALUES (1, {foo: 'bar'});" />
+  <Txs txs="UPDATE policies SET definition = {foo: 'baz'} WHERE _id = 1;" />
   <Query q={
-`SELECT _id, price, _system_from, _system_to
-  FROM trades FOR ALL SYSTEM_TIME
+`SELECT *, _system_from, _system_to
+  FROM policies FOR ALL SYSTEM_TIME
 `}
 />
 </Fiddle>
+
+Underwriter: we don't like the result, let's send previous data (pre-enrichment) to other third-party. Or send both! SIC code mutating from one row to the next.
+
+Imagine the leverage and underwriter can get if they can traverse time in the queries: how do you correlate quality/time-effectiveness with the processes applied to flows.
+We don't have good metrics because we don't have good grasp of unstructured data
+"Have I seen anything like this lately?", submission by a competitor 180 days ago
 
 XTDB implements the SQL:2011 standard for "system time versioning" ubiquitously, across all tables. Queries can run against any previous database state and have full access to history through the regular SQL interface.
 
@@ -65,6 +93,14 @@ FROM xt.txs AS transaction_log
 </Fiddle>
 
 ## 2) Snapshot-free Reporting: reproducibility without copying and result tearing
+
+Underwriters need to run calculations against the best known version of the correspondence. Often a configured blackbox is used. Needs reference data, e.g. public data sets, weather data, flora
+
+Underwriters wants point-in-time reporting, let me think about what my best move should have been (observations at a point in time)
+
+Keeping copies of URLs
+
+After initial quoting, might cross-sell and up-sell.
 
 Most applications rely on an ability to issue multiple queries against a database, and can't simply execute a single SQL statement to retrieve all necessary information in a single round trip.
 
@@ -90,6 +126,14 @@ In contrast, XTDB allows applications to refer to previous database states witho
 No locking, copying, or snapshotting is taking place against within XTDB. Queries against old, stable versions of the data are always consistent and will never contain partial changes or 'tearing' in the results.
 
 ## 3) Interleaving Upstream Sources: whose timestamp?
+
+M&A data, record business as of last year
+
+Working on a system that's flawed, or multiple
+Underwriter assistant might have to work across systems, underwriter doesn't want to have to care about which system
+audit for performance improvement (could be commission best)
+audit for learning what tools to build next
+insurance companies are thinking about what's "discoverable" (might leverage right to be forgotten)
 
 In many circumstances the system time of the database itself is uninteresting (i.e outside of auditing / debugging), and what is more relevant is the time recorded in an upstrem system. For instance a High-Frequency Trading platform could generate a trade with a timestamp that is anywhere from 0.01-100ms earlier than the time at which the trade database records the trade. In other situations information may even arrive hours or days 'late'.
 
@@ -122,6 +166,8 @@ VALUES (4, 400, DATE '2020-01-04');`} />
 </Fiddle>
 
 ## 4) Complex Version Histories
+
+No schema, no pydantic, you get a pile of JSON, it's a mess
 
 In addition to storing and reporting against upstream timestamps, financial applications often need to record and display multiple versions of entities.
 
@@ -156,6 +202,10 @@ WHERE _id = 1;`} />
 Unlike 'document databases', XTDB also provides complete SQL expressiveness and join capabilities.
 
 ## 5) Intelligent Archival: live data and storage tiering with transparent queries
+
+Archival for policy reasons
+
+High volume
 
 All data has a lifecycle, and in a typical application the window of 'live' data is carefully managed to ensure that the existence of old and now-irrelevant data does not impact the ongoing performance of the application more than necessary.
 
@@ -194,6 +244,12 @@ Extracting unbounded "change data" from XTDB is therefore trivial, without any a
 Only systems with a comprehensive, fine-grained understanding of the data lifecycle can effectively implement storage tiering to reduce long-term costs.
 
 ## 6) Corrections: curated history
+
+OCR mistake, wrong date
+
+Duration of policy is manual negotiation
+
+Renewals can sometimes use policy numbers
 
 Many finance applications rely on carefully designed 'forward correction' mechanisms that preserve an audit history whilst compensating for mistakes in human-scale business processes and software logic.
 
@@ -310,6 +366,8 @@ ORDER BY _id
 </Fiddle>
 
 ## 8) What If: time-travelling sources of truth
+
+Shape of the policy over time
 
 All of the previous capabilities discussed represent simplifications of common operational problems, based on XTDB's ubiquitous bitemporal data model implementation.
 
