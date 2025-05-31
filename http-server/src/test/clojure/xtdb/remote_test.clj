@@ -20,6 +20,7 @@
 (t/use-fixtures :each tu/with-mock-clock (tu/with-opts {:http-server {:port 0}}) tu/with-node
   (fn [f]
     (binding [*http-port* (xt-http/http-port tu/*node*)]
+      (Thread/sleep 200)
       (f))))
 
 (defn- http-url [endpoint] (str "http://localhost:" *http-port* "/" endpoint))
