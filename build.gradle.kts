@@ -69,6 +69,14 @@ tasks.named<JavaExec>("run") {
         } else {
             args = listOf("-m", "xtdb.main") + currentArgs
         }
+
+        // Add async profiler support
+        if (project.hasProperty("asyncProfiler")) {
+            val profilerPath = project.property("asyncProfiler") as String
+            val currentJvmArgs = jvmArgs?.toMutableList() ?: mutableListOf()
+            currentJvmArgs += "-agentpath:$profilerPath=start,interval=1000000,threads,file=/tmp/xtdb-startup-profile.jfr"
+            jvmArgs = currentJvmArgs
+        }
     }
 }
 
@@ -188,6 +196,11 @@ allprojects {
 
                     if (project.hasProperty("yourkit")) {
                         jvmArgs += "-agentpath:/opt/yourkit/bin/linux-x86-64/libyjpagent.so=app_name=xtdb"
+                    }
+
+                    if (project.hasProperty("asyncProfiler")) {
+                        val profilerPath = project.property("asyncProfiler") as String
+                        jvmArgs += "-agentpath:$profilerPath=start,interval=1000000,threads,file=/tmp/xtdb-startup-profile.jfr"
                     }
 
                     if (project.hasProperty("debugJvm")) {
@@ -446,6 +459,9 @@ dependencies {
 
     // hato uses cheshire for application/json encoding
     testImplementation("cheshire", "cheshire", "5.12.0")
+    
+    // clj-async-profiler for startup profiling
+    implementation("com.clojure-goes-fast", "clj-async-profiler", "1.3.0")
 }
 
 if (hasProperty("fin")) {

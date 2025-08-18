@@ -83,6 +83,50 @@
                                "xtdb.shutdown-hook-thread"))
     !shutdown?))
 
+(defn- start-profiler! []
+  "Start clj-async-profiler if available"
+  (try
+    (let [prof (requiring-resolve 'clj-async-profiler.core/start)]
+      (prof {})
+      (println "🔥 Profiler started - will run for 60 seconds then serve results at http://localhost:8080")
+      true)
+    (catch Exception e
+      (println "❌ Profiler not available:" (.getMessage e))
+      false)))
+
+(defn- stop-and-serve-profiler! []
+  "Stop profiler and serve results"
+  (try
+    (let [stop (requiring-resolve 'clj-async-profiler.core/stop)
+          serve (requiring-resolve 'clj-async-profiler.core/serve-ui)]
+      (stop)
+      (println "🔥 Profiler stopped, generating flame graph...")
+      (serve 8080)
+      (println "🌐 Flame graph available at: http://localhost:8080")
+      (println "Press Ctrl+C to exit"))
+    (catch Exception e
+      (println "❌ Error stopping profiler:" (.getMessage e)))))
+
+(defn- start-with-profiling [start-fn args]
+  "Start node with profiling for 60 seconds"
+  (if (start-profiler!)
+    (do
+      ;; Start profiler timer
+      (future
+        (Thread/sleep 60000) ; 60 seconds
+        (stop-and-serve-profiler!))
+      
+      ;; Start the node normally
+      (start-fn args))
+    
+    ;; Fall back to normal startup if profiler unavailable
+    (start-fn args)))
+
+(defn- check-for-profiling! [args]
+  "Check args for --profile flag and start profiler immediately if present"
+  (when (some #{"--profile"} args)
+    (start-profiler!)))
+
 (def config-file-opt
   ["-f" "--file CONFIG_FILE" "Config file to load XTDB options from - EDN, YAML"
    :id :file
@@ -109,22 +153,37 @@
     :parse-fn parse-long
     :default 5432]
 
+   ["--profile" "Profile startup for 60s then serve flame graph at http://localhost:8080"]
    ["-h" "--help"]])
 
 (defn- start-playground [args]
-  (let [{{:keys [port]} :options} (-> (parse-args args playground-cli-spec)
-                                      (handling-arg-errors-or-help))]
+  (let [{{:keys [port profile]} :options} (-> (parse-args args playground-cli-spec)
+                                              (handling-arg-errors-or-help))]
     (log/info "Starting in playground mode...")
+    
+    ;; Set up profiler shutdown timer if profiling (check raw args since profiler started early)
+    (when (some #{"--profile"} args)
+      (future
+        (Thread/sleep 60000) ; 60 seconds
+        (stop-and-serve-profiler!)))
+    
     (util/with-open [_node (pgw/open-playground {:port port})]
       @(shutdown-hook-promise))))
 
 (def node-cli-spec
   [config-file-opt
+   ["-p" "--profile" "Profile startup for 60s then serve flame graph at http://localhost:8080"]
    ["-h" "--help"]])
 
 (defn- start-node [args]
-  (let [{{:keys [file]} :options} (-> (parse-args args node-cli-spec)
-                                      (handling-arg-errors-or-help))]
+  (let [{{:keys [file profile]} :options} (-> (parse-args args node-cli-spec)
+                                              (handling-arg-errors-or-help))]
+    ;; Set up profiler shutdown timer if profiling (check raw args since profiler started early)
+    (when (some #{"--profile"} args)
+      (future
+        (Thread/sleep 60000) ; 60 seconds
+        (stop-and-serve-profiler!)))
+    
     (util/with-open [_node (xtn/start-node (file->node-opts file))]
       @(shutdown-hook-promise))))
 
@@ -147,6 +206,8 @@
 
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defn start-node-from-command-line [[cmd & more-args :as args]]
+  ;; Profiler is already started by xtdb.main if needed
+  
   (util/install-uncaught-exception-handler!)
 
   (logging/set-from-env! (System/getenv))
