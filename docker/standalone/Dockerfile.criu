@@ -1,0 +1,83 @@
+# Multi-stage build for CRIU-enabled XTDB
+FROM ubuntu:22.04 as criu-builder
+
+# Install CRIU (available in Ubuntu 22.04)
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        criu \
+        curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Now build the main image based on Eclipse Temurin but copy CRIU
+FROM eclipse-temurin:21
+
+LABEL org.opencontainers.image.source=https://github.com/xtdb/xtdb
+LABEL org.opencontainers.image.description="XTDB 2.x with CRIU checkpoint support"
+LABEL org.opencontainers.image.licenses="MPL-2.0"
+
+LABEL usage="Example docker-run options: \
+--privileged --cap-add=ALL -p 5432:5432 -p 8080:8080 -p 3000:3000"
+
+# Install runtime dependencies for CRIU
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        curl \
+        python3 \
+        libnl-3-200 \
+        libnet1 \
+        libprotobuf32t64 \
+        libprotobuf-c1 \
+        libnftables1 \
+        libnftnl11 \
+        libjansson4 \
+        libbsd0 \
+        libgnutls30 \
+        libmnl0 \
+        libxtables12 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy CRIU binaries and libraries from the builder stage
+COPY --from=criu-builder /usr/sbin/criu /usr/local/bin/criu
+COPY --from=criu-builder /usr/sbin/criu-ns /usr/local/bin/criu-ns
+COPY --from=criu-builder /usr/bin/compel /usr/local/bin/compel
+COPY --from=criu-builder /usr/bin/crit /usr/local/bin/crit
+COPY --from=criu-builder /usr/lib/x86_64-linux-gnu/libcriu.so.2.0 /usr/lib/x86_64-linux-gnu/libcriu.so.2.0
+# Copy the BSD library that CRIU needs
+COPY --from=criu-builder /lib/x86_64-linux-gnu/libbsd.so.0* /lib/x86_64-linux-gnu/
+
+WORKDIR /usr/local/lib/xtdb
+
+ENTRYPOINT ["./checkpoint-entrypoint.sh"]
+CMD ["-f", "local_config.yaml"]
+
+# Faster healthcheck for checkpoint scenarios
+HEALTHCHECK --start-period=5s --timeout=3s \
+    CMD curl -f http://localhost:8080/healthz/alive || exit 1
+
+EXPOSE 5432
+EXPOSE 3000
+EXPOSE 8080
+
+RUN mkdir -p /var/lib/xtdb
+VOLUME /var/lib/xtdb
+
+ARG GIT_SHA
+ARG XTDB_VERSION
+ENV GIT_SHA=${GIT_SHA}
+ENV XTDB_VERSION=${XTDB_VERSION}
+
+LABEL org.opencontainers.image.version=${XTDB_VERSION}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
+
+ADD local_config.yaml local_config.yaml
+ADD build/libs/xtdb-standalone.jar xtdb-standalone.jar
+ADD checkpoint-entrypoint.sh checkpoint-entrypoint.sh
+
+RUN groupadd -g 20000 xtdb && useradd -u 20000 -g 20000 -r xtdb
+RUN mkdir -p /home/xtdb && chown -R xtdb:xtdb /home/xtdb
+RUN chown -R xtdb:xtdb /var/lib/xtdb
+RUN chmod +x checkpoint-entrypoint.sh
+
+USER xtdb
