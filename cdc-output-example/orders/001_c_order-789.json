@@ -1,0 +1,85 @@
+{
+  "schema": {
+    "type": "struct",
+    "name": "xtdb.kafka.cdc.Envelope"
+  },
+  "payload": {
+    "before": null,
+    "after": {
+      "_id": "order-789",
+      "_valid_from": "2024-01-15T11:45:00Z",
+      "_valid_to": "9999-12-31T23:59:59.999999Z",
+      "_system_from": "2024-01-15T11:45:00Z",
+      "_system_to": "9999-12-31T23:59:59.999999Z",
+      "order_number": "ORD-2024-000789",
+      "customer_id": "user-123",
+      "order_date": "2024-01-15T11:45:00Z",
+      "status": "pending",
+      "items": [
+        {
+          "product_id": "prod-456",
+          "product_name": "Widget Pro",
+          "quantity": 2,
+          "unit_price": 29.99,
+          "subtotal": 59.98,
+          "discount_percent": 10,
+          "final_price": 53.98
+        },
+        {
+          "product_id": "prod-789",
+          "product_name": "Gadget Plus",
+          "quantity": 1,
+          "unit_price": 49.99,
+          "subtotal": 49.99,
+          "discount_percent": 0,
+          "final_price": 49.99
+        }
+      ],
+      "pricing": {
+        "subtotal": 103.97,
+        "discount": 5.99,
+        "tax_rate": 0.0875,
+        "tax_amount": 9.10,
+        "shipping": 5.00,
+        "total": 118.07,
+        "currency": "USD"
+      },
+      "shipping_address": {
+        "name": "Alice Johnson-Smith",
+        "street": "123 Main Street",
+        "city": "Springfield",
+        "state": "CA",
+        "zip": "90210",
+        "country": "USA",
+        "instructions": "Leave at door"
+      },
+      "billing_address": {
+        "same_as_shipping": true
+      },
+      "payment": {
+        "method": "credit_card",
+        "last_four": "4242",
+        "processor": "stripe",
+        "transaction_id": "ch_3MQpG2H7g8J9K0L1"
+      },
+      "metadata": {
+        "source": "web",
+        "ip_address": "192.168.1.100",
+        "session_id": "sess-abc-123-def",
+        "utm_source": "email",
+        "utm_campaign": "winter_sale"
+      }
+    },
+    "source": {
+      "version": "3.0.0",
+      "connector": "xtdb-cdc",
+      "name": "xtdb",
+      "ts_ms": 1705320300000,
+      "db": "xtdb",
+      "table": "orders",
+      "tx_id": 3001
+    },
+    "op": "c",
+    "ts_ms": 1705320300000
+  }
+}

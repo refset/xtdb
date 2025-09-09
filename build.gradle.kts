@@ -379,6 +379,7 @@ dependencies {
 
     projectDep(":xtdb-api")
     projectDep(":xtdb-core")
+    projectDep(":modules:xtdb-kafka-cdc")
 
     projectDep(":xtdb-http-server")
 

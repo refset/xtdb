@@ -1,0 +1,46 @@
+{
+  "schema": {
+    "type": "struct",
+    "name": "xtdb.kafka.cdc.Envelope"
+  },
+  "payload": {
+    "before": null,
+    "after": {
+      "_id": "prod-456",
+      "_valid_from": "2024-01-15T09:00:00Z",
+      "_valid_to": "9999-12-31T23:59:59.999999Z",
+      "_system_from": "2024-01-15T09:00:00Z",
+      "_system_to": "9999-12-31T23:59:59.999999Z",
+      "sku": "WGT-PRO-2024",
+      "name": "Widget Pro",
+      "description": "Professional grade widget with advanced features",
+      "price": 29.99,
+      "price_decimal": "29.99",
+      "category": "widgets",
+      "subcategory": "professional",
+      "in_stock": true,
+      "quantity": 150,
+      "warehouse_location": "A-12-3",
+      "tags": ["premium", "bestseller", "2024"],
+      "specifications": {
+        "weight_kg": 0.5,
+        "dimensions_cm": [10, 10, 5],
+        "color": "metallic silver",
+        "warranty_months": 24
+      },
+      "created_at": "2024-01-15T09:00:00Z",
+      "last_restocked": "2024-01-10T14:00:00Z"
+    },
+    "source": {
+      "version": "3.0.0",
+      "connector": "xtdb-cdc",
+      "name": "xtdb",
+      "ts_ms": 1705312800000,
+      "db": "xtdb",
+      "table": "products",
+      "tx_id": 2001
+    },
+    "op": "c",
+    "ts_ms": 1705312800000
+  }
+}

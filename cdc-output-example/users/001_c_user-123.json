@@ -1,0 +1,43 @@
+{
+  "schema": {
+    "type": "struct",
+    "name": "xtdb.kafka.cdc.Envelope",
+    "fields": [
+      {"field": "before", "optional": true},
+      {"field": "after", "optional": true},
+      {"field": "source", "optional": false},
+      {"field": "op", "optional": false},
+      {"field": "ts_ms", "optional": true}
+    ]
+  },
+  "payload": {
+    "before": null,
+    "after": {
+      "_id": "user-123",
+      "_valid_from": "2024-01-15T10:30:00Z",
+      "_valid_to": "9999-12-31T23:59:59.999999Z",
+      "_system_from": "2024-01-15T10:30:00Z",
+      "_system_to": "9999-12-31T23:59:59.999999Z",
+      "name": "Alice Smith",
+      "email": "alice@example.com",
+      "created_at": "2024-01-15T10:30:00Z",
+      "status": "active",
+      "preferences": {
+        "theme": "dark",
+        "notifications": true
+      }
+    },
+    "source": {
+      "version": "3.0.0",
+      "connector": "xtdb-cdc",
+      "name": "xtdb",
+      "ts_ms": 1705316400000,
+      "db": "xtdb",
+      "table": "users",
+      "tx_id": 1001,
+      "system_time": 1705316400000
+    },
+    "op": "c",
+    "ts_ms": 1705316400000
+  }
+}

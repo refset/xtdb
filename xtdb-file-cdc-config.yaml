@@ -1,0 +1,22 @@
+# XTDB Configuration with File-based CDC Writer
+# This configuration starts an XTDB node with CDC events written to files
+
+databases:
+  xtdb:
+    log: !InMemory
+    storage: !InMemory
+
+server:
+  host: '0.0.0.0'
+  port: 5432
+
+# Read-only HTTP server for monitoring and File CDC
+modules:
+- !HttpServer
+  host: '0.0.0.0'
+  port: 3000
+- !FileCdc
+  outputDirectory: "live-cdc-output"
+  prettyPrint: true
+  lagThreshold: "PT10S"
+  enabled: true

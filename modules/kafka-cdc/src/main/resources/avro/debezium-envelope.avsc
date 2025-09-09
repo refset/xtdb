@@ -1,0 +1,110 @@
+{
+  "type": "record",
+  "name": "Envelope",
+  "namespace": "xtdb.kafka.cdc",
+  "fields": [
+    {
+      "name": "before",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Value before the change (JSON string)"
+    },
+    {
+      "name": "after",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Value after the change (JSON string)"
+    },
+    {
+      "name": "source",
+      "type": {
+        "type": "record",
+        "name": "Source",
+        "fields": [
+          {
+            "name": "version",
+            "type": "string",
+            "doc": "XTDB version"
+          },
+          {
+            "name": "connector",
+            "type": "string",
+            "default": "xtdb-cdc"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "doc": "Name of the XTDB node"
+          },
+          {
+            "name": "ts_ms",
+            "type": "long",
+            "doc": "Timestamp in milliseconds"
+          },
+          {
+            "name": "snapshot",
+            "type": ["null", "string"],
+            "default": null,
+            "doc": "Snapshot indicator"
+          },
+          {
+            "name": "db",
+            "type": "string",
+            "doc": "Database name"
+          },
+          {
+            "name": "table",
+            "type": "string",
+            "doc": "Table name"
+          },
+          {
+            "name": "tx_id",
+            "type": "long",
+            "doc": "Transaction ID"
+          },
+          {
+            "name": "system_time",
+            "type": "long",
+            "doc": "System time in milliseconds"
+          }
+        ]
+      }
+    },
+    {
+      "name": "op",
+      "type": "string",
+      "doc": "Operation type: c=create, u=update, d=delete, r=read (snapshot)"
+    },
+    {
+      "name": "ts_ms",
+      "type": ["null", "long"],
+      "default": null,
+      "doc": "Timestamp of when the change was made in the source system"
+    },
+    {
+      "name": "transaction",
+      "type": ["null", {
+        "type": "record",
+        "name": "Transaction",
+        "fields": [
+          {
+            "name": "id",
+            "type": "string",
+            "doc": "Transaction identifier"
+          },
+          {
+            "name": "total_order",
+            "type": "long",
+            "doc": "Absolute position of the event"
+          },
+          {
+            "name": "data_collection_order",
+            "type": "long",
+            "doc": "Position of the event within the transaction"
+          }
+        ]
+      }],
+      "default": null
+    }
+  ]
+}

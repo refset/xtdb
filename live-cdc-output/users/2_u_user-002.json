@@ -1,0 +1,40 @@
+{
+  "schema": {
+    "type": "struct",
+    "name": "xtdb.kafka.cdc.Envelope"
+  },
+  "payload": {
+    "before": {
+      "_id": "user-002",
+      "_valid_from": "2025-09-02T21:00:21+01:00",
+      "_valid_to": "2025-09-02T21:00:31+01:00",
+      "_system_from": "2025-09-02T21:00:21+01:00",
+      "_system_to": "2025-09-02T21:00:31+01:00",
+      "name": "User 2",
+      "email": "user2@demo.com",
+      "status": "active"
+    },
+    "after": {
+      "_id": "user-002",
+      "_valid_from": "2025-09-02T21:00:31+01:00",
+      "_valid_to": "9999-12-31T23:59:59.999999Z",
+      "_system_from": "2025-09-02T21:00:31+01:00",
+      "_system_to": "9999-12-31T23:59:59.999999Z",
+      "name": "User 2 (Updated)",
+      "email": "user2@demo.com",
+      "status": "premium",
+      "updated_at": "2025-09-02T21:00:31+01:00"
+    },
+    "source": {
+      "version": "3.0.0",
+      "connector": "xtdb-cdc",
+      "name": "xtdb-demo",
+      "ts_ms": 1756843231000,
+      "db": "xtdb",
+      "table": "users",
+      "tx_id": 2000
+    },
+    "op": "u",
+    "ts_ms": 1756843231000
+  }
+}
