@@ -1339,6 +1339,85 @@
 (def ^:private push-decorrelated-selection-down-past-group-by (partial push-selection-down-past-group-by false))
 (def ^:private push-decorrelated-selections-with-fewer-variables-down (partial push-selections-with-fewer-variables-down false))
 
+(defn- extract-column-from-relation
+  "Given an equality predicate and a set of columns from a relation,
+   returns the column from that predicate which belongs to that relation."
+  [pred rel-cols]
+  (let [[_ col1 col2] pred]
+    (cond
+      (rel-cols col1) col1
+      (rel-cols col2) col2)))
+
+(defn- find-eliminable-bridge-relation
+  "Finds a relation that only serves to bridge two other relations via transitive equality.
+   Returns a map with :rel, :pred1, :pred2, :other-col-1, :other-col-2, :num-cols or nil."
+  [rels rel-columns-map pred-rels-map]
+  (->> rels
+       (keep
+         (fn [candidate-rel]
+           (let [candidate-cols (rel-columns-map candidate-rel)
+                 preds-using-candidate (filter (fn [[pred _]]
+                                                 (some candidate-cols (expr-symbols pred)))
+                                              pred-rels-map)]
+             (when (= 2 (count preds-using-candidate))
+               (let [[pred1 rels1] (first preds-using-candidate)
+                     [pred2 rels2] (second preds-using-candidate)]
+                 (when (and (equals-predicate? pred1)
+                            (equals-predicate? pred2)
+                            (= 2 (count rels1))
+                            (= 2 (count rels2)))
+                   (let [other-rel-1 (first (remove #{candidate-rel} rels1))
+                         other-rel-2 (first (remove #{candidate-rel} rels2))]
+                     (when (and other-rel-1 other-rel-2
+                                (not= other-rel-1 other-rel-2))
+                       (let [other-col-1 (extract-column-from-relation pred1 (rel-columns-map other-rel-1))
+                             other-col-2 (extract-column-from-relation pred2 (rel-columns-map other-rel-2))]
+                         (when (and other-col-1 other-col-2)
+                           {:rel candidate-rel
+                            :pred1 pred1
+                            :pred2 pred2
+                            :other-col-1 other-col-1
+                            :other-col-2 other-col-2
+                            :num-cols (count candidate-cols)}))))))))))
+       (sort-by :num-cols)
+       (first)))
+
+(defn- eliminate-transitive-join-relation [z]
+  "Eliminates a relation from a mega-join when it only serves to connect two other relations
+   via transitive equality. For example:
+   [:mega-join [{s.sub$feed = f.id} {f.id = i.feed}] [subs feeds items]]
+   =>
+   [:mega-join [{s.sub$feed = i.feed}] [subs items]]"
+  (r/zmatch z
+    [:mega-join join-condition rels]
+    ;;=>
+    (when (>= (count rels) 3)
+      (let [rel-columns-map (into {} (map (fn [rel] [rel (set (relation-columns rel))]) rels))
+            pred-rels-map (into {}
+                            (map (fn [pred]
+                                   (let [pred-cols (expr-symbols pred)
+                                         referencing-rels (filter #(some pred-cols (rel-columns-map %)) rels)]
+                                     [pred referencing-rels]))
+                                 join-condition))
+            eliminable-rel (find-eliminable-bridge-relation rels rel-columns-map pred-rels-map)]
+
+        (when eliminable-rel
+          (let [{:keys [rel pred1 pred2 other-col-1 other-col-2]} eliminable-rel
+                ;; Create new transitive predicate
+                new-predicate (list '= other-col-1 other-col-2)
+
+                ;; Remove old predicates and add new one
+                new-join-condition (-> join-condition
+                                      (set)
+                                      (disj pred1 pred2)
+                                      (conj new-predicate)
+                                      (vec))
+
+                ;; Remove the eliminable relation
+                new-rels (vec (remove #{rel} rels))]
+
+            [:mega-join new-join-condition new-rels]))))))
+
 ;; Logical plan API
 
 (def ^:private optimise-plan-rules
@@ -1346,6 +1425,7 @@
    #'promote-selection-to-join
    #'promote-selection-to-mega-join
    #'split-conjunctions-in-mega-join
+   #'eliminate-transitive-join-relation
    #'push-predicates-from-mega-join-to-child-relations
    #'push-selection-down-past-apply
    #'push-correlated-selection-down-past-join

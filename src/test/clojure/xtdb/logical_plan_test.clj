@@ -170,3 +170,92 @@
                 (period ~f1 ~t1)
                 ~(sql/->col-sym 'col1)))))
        "not possible to tell if col1 is a period or a scalar temporal value (timestamp etc.)"))))
+
+(t/deftest test-eliminate-transitive-join-relation
+  (t/testing "eliminates a relation that only serves as a bridge between two other relations"
+    (let [s-id (sql/->col-sym 's.sub_id)
+          s-feed (sql/->col-sym 's.sub$feed)
+          f-id (sql/->col-sym 'f._id)
+          i-id (sql/->col-sym 'i._id)
+          i-feed (sql/->col-sym 'i.item$feed)
+
+          subs-rel [:scan {:table 'public/subs} [s-id s-feed]]
+          feeds-rel [:scan {:table 'public/feeds} [f-id]]
+          items-rel [:scan {:table 'public/items} [i-id i-feed]]
+
+          input [:mega-join
+                 [(list '= s-feed f-id)
+                  (list '= f-id i-feed)]
+                 [subs-rel feeds-rel items-rel]]
+
+          expected [:mega-join
+                    [(list '= s-feed i-feed)]
+                    [subs-rel items-rel]]]
+
+      (t/is (= expected (#'lp/eliminate-transitive-join-relation input))
+            "should eliminate feeds table and create direct join between subs and items")))
+
+  (t/testing "does not eliminate when relation has more than 2 join predicates"
+    (let [s-id (sql/->col-sym 's.sub_id)
+          s-feed (sql/->col-sym 's.sub$feed)
+          f-id (sql/->col-sym 'f._id)
+          f-name (sql/->col-sym 'f.name)
+          i-feed (sql/->col-sym 'i.item$feed)
+
+          subs-rel [:scan {:table 'public/subs} [s-id s-feed]]
+          feeds-rel [:scan {:table 'public/feeds} [f-id f-name]]
+          items-rel [:scan {:table 'public/items} [i-feed]]
+
+          input [:mega-join
+                 [(list '= s-feed f-id)
+                  (list '= f-id i-feed)
+                  (list '= f-name "foo")]
+                 [subs-rel feeds-rel items-rel]]]
+
+      (t/is (nil? (#'lp/eliminate-transitive-join-relation input))
+            "should not eliminate when relation is used in additional predicates")))
+
+  (t/testing "does not eliminate when only 2 relations in join"
+    (let [s-feed (sql/->col-sym 's.sub$feed)
+          f-id (sql/->col-sym 'f._id)
+
+          subs-rel [:scan {:table 'public/subs} [s-feed]]
+          feeds-rel [:scan {:table 'public/feeds} [f-id]]
+
+          input [:mega-join
+                 [(list '= s-feed f-id)]
+                 [subs-rel feeds-rel]]]
+
+      (t/is (nil? (#'lp/eliminate-transitive-join-relation input))
+            "should require at least 3 relations to eliminate one")))
+
+  (t/testing "handles 4-way join eliminating middle relation"
+    (let [u-id (sql/->col-sym 'u._id)
+          s-user (sql/->col-sym 's.sub$user)
+          s-feed (sql/->col-sym 's.sub$feed)
+          f-id (sql/->col-sym 'f._id)
+          i-feed (sql/->col-sym 'i.item$feed)
+
+          users-rel [:scan {:table 'public/users} [u-id]]
+          subs-rel [:scan {:table 'public/subs} [s-user s-feed]]
+          feeds-rel [:scan {:table 'public/feeds} [f-id]]
+          items-rel [:scan {:table 'public/items} [i-feed]]
+
+          input [:mega-join
+                 [(list '= s-user u-id)
+                  (list '= s-feed f-id)
+                  (list '= f-id i-feed)]
+                 [users-rel subs-rel feeds-rel items-rel]]
+
+          result (#'lp/eliminate-transitive-join-relation input)
+          [_ result-preds result-rels] result
+
+          expected-preds #{(list '= s-user u-id) (list '= s-feed i-feed)}
+          expected-rels [users-rel subs-rel items-rel]]
+
+      (t/is (= :mega-join (first result))
+            "should return a mega-join")
+      (t/is (= expected-preds (set result-preds))
+            "should have correct predicates (order independent)")
+      (t/is (= expected-rels result-rels)
+            "should eliminate feeds and preserve other relations"))))
