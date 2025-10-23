@@ -1,0 +1,11 @@
+{:deps {org.clojure/clojure {:mvn/version "1.12.0"}}
+ :aliases
+ {:mcp
+  {:deps {org.clojure/clojure {:mvn/version "1.12.0"}
+          org.slf4j/slf4j-nop {:mvn/version "2.0.16"}
+          com.bhauman/clojure-mcp {:git/url "https://github.com/bhauman/clojure-mcp.git"
+                                   :git/tag "v0.1.11-alpha"
+                                   :git/sha "7739dba"}}
+   :exec-fn clojure-mcp.main/start-mcp-server
+   :exec-args {:port 7888
+               :project-dir "/home/jdt/ghq/github.com/xtdb/xtdb2"}}}}

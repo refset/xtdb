@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "xtdb-clojure-repl": {
+      "type": "stdio",
+      "command": "clojure",
+      "args": [
+        "-X:mcp",
+        ":port",
+        "7881"
+      ],
+      "env": {}
+    }
+  }
+}
