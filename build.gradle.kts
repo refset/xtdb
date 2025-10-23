@@ -682,3 +682,40 @@ tasks.register<JavaExec>("readHashTrieFile") {
     if (project.hasProperty("file"))
         args(project.property("file") as? String ?: error("file property must be a string"))
 }
+
+tasks.register<JavaExec>("clj-test") {
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("clojure.main")
+    jvmArgs(defaultJvmArgs + sixGBJvmArgs)
+    environment("AWS_REGION", "eu-west-1")
+
+    val namespace = project.findProperty("namespace")?.toString()
+    val testName = project.findProperty("test")?.toString()?.takeIf { it.isNotEmpty() && !it.startsWith("task") }
+
+    if (namespace != null) {
+        val ns = namespace.replace('_', '-')
+
+        if (testName != null && testName.isNotEmpty()) {
+            // Run a specific test
+            val test = testName.replace('_', '-')
+            args(
+                "-e", "(require 'clojure.test)",
+                "-e", "(require '${ns})",
+                "-e", "(println \"\\nRunning test: ${ns}/${test}\")",
+                "-e", "(let [result (clojure.test/test-vars [#'${ns}/${test}])]" +
+                      "  (System/exit (if (clojure.test/successful? result) 0 1)))"
+            )
+        } else {
+            // Run all tests in namespace
+            args(
+                "-e", "(require 'clojure.test)",
+                "-e", "(require '${ns})",
+                "-e", "(println \"\\nRunning all tests in: ${ns}\")",
+                "-e", "(let [result (clojure.test/run-tests '${ns})]" +
+                      "  (System/exit (if (clojure.test/successful? result) 0 1)))"
+            )
+        }
+    } else {
+        throw GradleException("namespace property is required. Use: ./gradlew clj-test -Pnamespace=xtdb.sql.expr-test [-Ptest=test-round-query]")
+    }
+}
