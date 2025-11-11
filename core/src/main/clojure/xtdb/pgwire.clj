@@ -1430,8 +1430,11 @@
   ;; Handles a msg-execute to run a previously bound portal (via msg-bind).
   (let [portal (or (get-in @conn-state [:portals portal-name])
                    (throw (pgio/err-protocol-violation "no such portal")))]
-    (execute-portal conn (cond-> portal
-                           (not (zero? limit)) (assoc :limit limit)))))
+    (try
+      (execute-portal conn (cond-> portal
+                             (not (zero? limit)) (assoc :limit limit)))
+      (finally
+        (util/close (:cursor portal))))))
 
 (defmethod handle-msg* :msg-simple-query [{:keys [conn-state] :as conn} {:keys [query]}]
   (swap! conn-state assoc :protocol :simple)
