@@ -47,9 +47,12 @@ class ScanCursor(
 
     override fun tryAdvance(c: Consumer<in RelationReader>): Boolean {
         bufferedRels.poll()?.let {
-            c.accept(it)
-            it.close()
-            return true
+            try {
+                c.accept(it)
+                return true
+            } finally {
+                it.close()
+            }
         }
 
         val iidPred = colPreds["_iid"]
@@ -113,9 +116,12 @@ class ScanCursor(
                     .also { bufferedRels.addAll(it) }
 
                 bufferedRels.poll()?.let {
-                    c.accept(it)
-                    it.close()
-                    return true
+                    try {
+                        c.accept(it)
+                        return true
+                    } finally {
+                        it.close()
+                    }
                 }
             }
         }
