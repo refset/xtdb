@@ -208,10 +208,8 @@
                  :quantified-comparison (let [{:keys [expr op]} sq
                                               needle-param (vary-meta '?_needle assoc :correlated-column? true)]
 
-                                          (if (and (:column? (meta expr))
+                                          (if (and (symbol? expr)
                                                    (not (get sq-refs expr)))
-                                            ;;can't apply shortcut if column is already mapped to existing param due to limitation
-                                            ;;of input col as key in sq-refs param map
                                             [:apply
                                              {:mark-join {sq-sym (list op needle-param (first (:col-syms query-plan)))}}
                                              (assoc sq-refs expr needle-param)
@@ -1918,20 +1916,20 @@
                             qc-pt2))
       (= :all (:quantifier qc-pt2)) (list 'not)))
 
-  (visitQuantifiedComparisonExpr [{{:keys [!id-count]} :env, :keys [qc-pt2, ^Map !subqs], :as this} ctx]
+  (visitQuantifiedComparisonExpr [{{:keys [!id-count]} :env, :keys [scope qc-pt2, ^Map !subqs] :as this} ctx]
     (let [sq-sym (-> (->col-sym (str "_sq_" (swap! !id-count inc)))
                      (vary-meta assoc :sq-out-sym? true))
 
-          ;; HACK: removing the scope. will unblock #3539,
-          ;; but I wasn't sure of the semantics in the general case
-          expr (.accept (.expr ctx) (assoc this :scope nil))
+          !qc-sq-refs (HashMap.)
+          expr (.accept (.expr ctx) (assoc this :scope (->SubqueryScope env scope !qc-sq-refs)))
 
           expr-sym (->col-sym (str "_qc_expr_" (swap! !id-count inc)))
           query-plan (->QueryExpr [:table {expr-sym expr}]
                                   [expr-sym])]
 
       (.put !subqs sq-sym (into {:sq-type :quantified-comparison
-                                 :query-plan query-plan}
+                                 :query-plan query-plan
+                                 :sq-refs (into {} !qc-sq-refs)}
                                 qc-pt2))
 
       (cond-> sq-sym

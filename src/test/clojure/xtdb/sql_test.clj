@@ -3090,3 +3090,17 @@ UNION ALL
 
   (t/is (= [{:result false}]
            (xt/q tu/*node* "SELECT 10 = ANY(SELECT col1 FROM docs) AS result"))))
+
+(t/deftest test-any-with-array-column
+  (t/testing "ANY can use correlated column references with array columns"
+    (xt/execute-tx tu/*node* [[:put-docs :docs {:xt/id 1 :col1 [8 9]}]])
+    (xt/execute-tx tu/*node* [[:put-docs :docs {:xt/id 2 :col1 [6 7]}]])
+
+    (t/is (= [{:xt/id 1}]
+             (xt/q tu/*node* "SELECT _id FROM docs WHERE 8 = ANY(col1)")))
+
+    (t/is (= [{:xt/id 2}]
+             (xt/q tu/*node* "SELECT _id FROM docs WHERE 6 = ANY(col1)")))
+
+    (t/is (= []
+             (xt/q tu/*node* "SELECT _id FROM docs WHERE 10 = ANY(col1)")))))
