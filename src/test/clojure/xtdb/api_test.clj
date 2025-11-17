@@ -1,6 +1,7 @@
 (ns xtdb.api-test
   (:require [clojure.test :as t :refer [deftest]]
             [next.jdbc :as jdbc]
+            [taoensso.nippy :as nippy]
             [xtdb.api :as xt]
             [xtdb.basis :as basis]
             [xtdb.compactor :as c]
@@ -98,6 +99,34 @@
                       {:xt/id (name t), :v (get vs t)}))
                (set (xt/q *node* "SELECT b._id, b.v FROM bar b"
                           {:default-tz (ZoneId/of "Europe/London")})))))))
+
+(t/deftest round-trips-binary-data
+  (t/testing "Binary data (e.g., Nippy-frozen bytes) should roundtrip without corruption
+              Validates that byte arrays are not truncated when stored/retrieved.
+              Previously reported bug: 361 byte array was retrieved as 355 bytes, causing thaw to fail."
+    (let [test-data {:unit {:after "network-online.target"}
+                     :service {:type "oneshot"
+                               :remain-after-exit true
+                               :exec-start [(str "sh -c 'ip link add hatchery-shim link \"eth0\" type macvlan mode bridge || true'")
+                                            (str "sh -c 'ip addr replace $(ip --oneline route get \"127.0.0.1\""
+                                                 " | sed \\'s/.* src //g;s/ .*//g\\') dev hatchery-shim'")
+                                            "ip link set dev hatchery-shim up"]
+                               :exec-stop "ip link del hatchery-shim"}}
+          frozen-bytes (nippy/fast-freeze test-data)]
+
+      (xt/submit-tx *node* [[:put-docs :test {:xt/id 12345 :payload frozen-bytes}]])
+
+      (let [doc (first (xt/q *node* '(from :test [{:xt/id 12345} *])))
+            retrieved-bytes (:payload doc)]
+
+        (t/is (= (count frozen-bytes) (count retrieved-bytes))
+              "Retrieved byte array should have same length as original")
+
+        (t/is (java.util.Arrays/equals frozen-bytes retrieved-bytes)
+              "Retrieved byte array should be identical to original")
+
+        (t/is (= test-data (nippy/fast-thaw retrieved-bytes))
+              "Should be able to thaw retrieved bytes back to original data")))))
 
 (t/deftest can-manually-specify-system-time-47
   (let [tx1 (xt/execute-tx *node* [[:put-docs :docs {:xt/id :foo}]]
