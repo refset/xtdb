@@ -232,6 +232,26 @@ allprojects {
                         jvmArgs += twelveGBJvmArgs
                     }
 
+                    if (project.hasProperty("hotswap")) {
+                        // Use JBR's built-in HotswapAgent in fatjar mode
+                        // Fatjar mode includes all plugins needed for watching build directories
+                        jvmArgs += "-XX:+AllowEnhancedClassRedefinition"
+                        jvmArgs += "-XX:HotswapAgent=fatjar"
+
+                        // Enable logging to see what HotswapAgent is doing
+                        jvmArgs += "-Xlog:redefine+class*=info"
+
+                        // Configure HotswapAgent to watch build directories
+                        val coreBuildDir = rootProject.file("core/build/classes/kotlin/main").absolutePath
+                        val apiBuildDir = rootProject.file("api/build/classes/kotlin/main").absolutePath
+                        jvmArgs += "-DextraClasspath=${coreBuildDir};${apiBuildDir}"
+                        jvmArgs += "-DautoHotswap=true"
+
+                        println("JBR HotswapAgent enabled in fatjar mode")
+                        println("Watching: ${coreBuildDir}")
+                        println("Watching: ${apiBuildDir}")
+                    }
+
                     if (project.hasProperty("replPort"))
                         port.set(project.property("replPort").toString().toInt())
 
