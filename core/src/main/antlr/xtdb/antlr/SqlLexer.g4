@@ -245,6 +245,7 @@ OF : 'OF' ;
 OFF : 'OFF' ;
 OFFSET : 'OFFSET' ;
 ON : 'ON' ;
+OID : 'OID' ;
 ONLY : 'ONLY' ;
 OR : 'OR' ;
 ORDER : 'ORDER' ;
