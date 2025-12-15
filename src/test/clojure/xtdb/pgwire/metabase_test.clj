@@ -34,7 +34,7 @@
     (xt/execute-tx tu/*node* [[:sql "INSERT INTO foo (_id, name) VALUES (1, 'test')"]])
 
     (let [results (xt/q tu/*node*
-                     "SELECT \"c\".\"column_name\" AS \"name\",
+                        "SELECT \"c\".\"column_name\" AS \"name\",
                              CASE WHEN \"c\".\"udt_schema\" IN ('public', 'pg_catalog')
                                   THEN FORMAT('%s', \"c\".\"udt_name\")
                                   ELSE FORMAT('\"%s\".\"%s\"', \"c\".\"udt_schema\", \"c\".\"udt_name\")
@@ -122,3 +122,59 @@
                       AND (\"c\".\"contype\" = 'f'::char)
                       AND (\"fk_ns\".\"nspname\" = 'public')
                     ORDER BY \"fk-table-schema\" ASC, \"fk-table-name\" ASC")))))
+
+(t/deftest pg-path-access-operator-test
+  (t/testing "PostgreSQL #>> operator for JSON/struct field access as text"
+    (xt/execute-tx tu/*node* [[:put-docs :json_data {:xt/id 1 :data {:age 25 :name "Alice" :nested {:inner 42}}}]])
+
+    (t/testing "literal path with PostgreSQL array syntax"
+      (t/is (= [{:val "25"}]
+               (xt/q tu/*node* "SELECT data #>> '{age}' AS val FROM json_data"))))
+
+    (t/testing "literal path with SQL array syntax"
+      (t/is (= [{:val "25"}]
+               (xt/q tu/*node* "SELECT data #>> array['age'] AS val FROM json_data"))))
+
+    (t/testing "parameterized path (Metabase style)"
+      (t/is (= [{:val "25"}]
+               (xt/q tu/*node* ["SELECT data #>> array[?]::text[] AS val FROM json_data" "age"]))))
+
+    (t/testing "nested path traversal"
+      (t/is (= [{:val "42"}]
+               (xt/q tu/*node* "SELECT data #>> '{nested,inner}' AS val FROM json_data"))))
+
+    (t/testing "nested path with parameterized access"
+      (t/is (= [{:val "42"}]
+               (xt/q tu/*node* ["SELECT data #>> array[?, ?]::text[] AS val FROM json_data" "nested" "inner"]))))
+
+    (t/testing "non-existent field returns NULL"
+      (t/is (= [{}]
+               (xt/q tu/*node* "SELECT data #>> '{nonexistent}' AS val FROM json_data"))))
+
+    (t/testing "string field returns string value"
+      (t/is (= [{:val "Alice"}]
+               (xt/q tu/*node* "SELECT data #>> '{name}' AS val FROM json_data"))))))
+
+(t/deftest pg-path-access-decimal-cast-test
+  (t/testing "Casting #>> result to decimal"
+    (xt/execute-tx tu/*node* [[:put-docs :numeric_data {:xt/id 1 :data {:amount 100 :price 42.50 :empty "" :name "test"}}]])
+
+    (t/testing "numeric field cast to decimal"
+      (t/is (= [{:val 100.000000000M}]
+               (xt/q tu/*node* "SELECT (data #>> '{amount}')::decimal AS val FROM numeric_data"))))
+
+    (t/testing "decimal field cast to decimal"
+      (t/is (= [{:val 42.500000000M}]
+               (xt/q tu/*node* "SELECT (data #>> '{price}')::decimal AS val FROM numeric_data"))))
+
+    (t/testing "empty string field cast to decimal returns NULL"
+      (t/is (= [{}]
+               (xt/q tu/*node* "SELECT (data #>> '{empty}')::decimal AS val FROM numeric_data"))))
+
+    (t/testing "non-existent field cast to decimal returns NULL"
+      (t/is (= [{}]
+               (xt/q tu/*node* "SELECT (data #>> '{nonexistent}')::decimal AS val FROM numeric_data"))))
+
+    (t/testing "Metabase-style query with parameterized path and decimal cast"
+      (t/is (= [{:val 100.000000000M}]
+               (xt/q tu/*node* ["SELECT (data #>> array[?]::text[])::decimal AS val FROM numeric_data" "amount"]))))))

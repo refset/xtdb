@@ -60,6 +60,9 @@ SOLIDUS : '/' ;
 PERCENT : '%' ;
 
 BITWISE_OR : '|' ;
+// PostgreSQL JSON/struct path operators (must come before BITWISE_XOR)
+PG_PATH_ACCESS_TEXT : '#>>' ;
+PG_PATH_ACCESS : '#>' ;
 BITWISE_XOR : '#' ;
 BITWISE_SHIFT_LEFT : '<<' ;
 BITWISE_SHIFT_RIGHT : '>>' ;

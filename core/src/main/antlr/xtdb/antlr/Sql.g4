@@ -184,6 +184,7 @@ dataType
     | 'BYTEA' #VarbinaryType
     | 'URI' # UriType
     | dataType 'ARRAY' ('[' maximumCardinality ']')? # ArrayType
+    | dataType '[' ']' # ArrayTypeShorthand
     ;
 
 precision : UNSIGNED_INTEGER ;
@@ -257,6 +258,8 @@ exprPrimary
     | exprPrimary '.' fieldName=identifier #FieldAccess
     | exprPrimary '[' expr ']' #ArrayAccess
     | exprPrimary '::' dataType #PostgresCastExpr
+    | exprPrimary '#>>' path=expr #PgPathAccessTextExpr
+    | exprPrimary '#>' path=expr #PgPathAccessExpr
     | exprPrimary '||' exprPrimary #ConcatExpr
 
     | parameterSpecification # ParamExpr

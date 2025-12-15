@@ -936,6 +936,18 @@
     (catch Exception e
       (add-err! env (->CannotParseURI u-str (.getMessage e))))))
 
+(defn- parse-pg-array-literal
+  "Parses PostgreSQL array literal string format: '{element1,element2,...}'
+   Returns a vector of strings, or nil if not a valid pg array literal."
+  [s]
+  (when (and (string? s)
+             (str/starts-with? s "{")
+             (str/ends-with? s "}"))
+    (let [inner (subs s 1 (dec (count s)))]
+      (if (str/blank? inner)
+        []
+        (mapv str/trim (str/split inner #","))))))
+
 (defn fn-with-precision [fn-symbol ^ParserRuleContext precision-ctx]
   (if-let [precision (some-> precision-ctx (.getText) (parse-long))]
     (list fn-symbol precision)
@@ -1053,7 +1065,15 @@
         {:cast-type :decimal
          :cast-opts (cond-> {}
                       precision (assoc :precision precision)
-                      scale (assoc :scale scale))}))))
+                      scale (assoc :scale scale))})))
+
+  (visitArrayType [this ctx]
+    (let [{:keys [cast-type]} (.accept (.dataType ctx) this)]
+      {:cast-type [:list cast-type]}))
+
+  (visitArrayTypeShorthand [this ctx]
+    (let [{:keys [cast-type]} (.accept (.dataType ctx) this)]
+      {:cast-type [:list cast-type]})))
 
 (defn handle-cast-expr [ve {:keys [cast-type cast-opts ->cast-fn]}]
   (if ->cast-fn
@@ -1243,6 +1263,47 @@
       (list 'nth ve (if (integer? n)
                       (dec n)
                       (list '- n 1)))))
+
+  ;; PostgreSQL #>> operator: extracts nested field at path as text
+  ;; e.g., metadata #>> array['count'] -> CAST((metadata).count AS TEXT)
+  ;; e.g., metadata #>> '{count}' -> CAST((metadata).count AS TEXT)
+  (visitPgPathAccessTextExpr [this ctx]
+    (let [struct-expr (-> (.exprPrimary ctx) (.accept this))
+          path-expr (-> (.path ctx) (.accept this))
+          path-vec (cond
+                     (vector? path-expr) path-expr
+                     (and (seq? path-expr) (= 'cast (first path-expr)) (vector? (second path-expr)))
+                     (second path-expr)
+                     (string? path-expr) (parse-pg-array-literal path-expr)
+                     :else nil)
+          literal-string-path? (and path-vec (every? string? path-vec))
+          accessed (if literal-string-path?
+                     (reduce (fn [expr field]
+                               (list '. expr (keyword field)))
+                             struct-expr
+                             path-vec)
+                     (list 'get-field struct-expr path-expr))]
+      (list 'cast accessed :utf8)))
+
+  ;; PostgreSQL #> operator: extracts nested field at path (preserves type)
+  ;; e.g., metadata #> array['nested', 'field'] -> (metadata).nested.field
+  ;; e.g., metadata #> '{nested,field}' -> (metadata).nested.field
+  (visitPgPathAccessExpr [this ctx]
+    (let [struct-expr (-> (.exprPrimary ctx) (.accept this))
+          path-expr (-> (.path ctx) (.accept this))
+          path-vec (cond
+                     (vector? path-expr) path-expr
+                     (and (seq? path-expr) (= 'cast (first path-expr)) (vector? (second path-expr)))
+                     (second path-expr)
+                     (string? path-expr) (parse-pg-array-literal path-expr)
+                     :else nil)
+          literal-string-path? (and path-vec (every? string? path-vec))]
+      (if literal-string-path?
+        (reduce (fn [expr field]
+                  (list '. expr (keyword field)))
+                struct-expr
+                path-vec)
+        (list 'get-field struct-expr path-expr))))
 
   (visitUnaryPlusExpr [this ctx] (-> (.numericExpr ctx) (.accept this)))
 

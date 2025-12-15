@@ -276,11 +276,25 @@
     {:return-type source-type
      :->call-code first}))
 
+(defn parse-decimal
+  "Parses a string to BigDecimal, returning nil for empty/blank strings."
+  [^String s ^long scale]
+  (when-not (or (nil? s) (.isEmpty s) (.isBlank s))
+    (.setScale (bigdec s) scale RoundingMode/HALF_EVEN)))
+
 (defmethod codegen-cast [:utf8 :decimal] [{{:keys [precision scale]} :cast-opts}]
   (let [scale (if precision (or scale 0) 9)
-        precision (or precision 64)]
-    {:return-type [:decimal precision scale (precision->bit-width precision)]
-     :->call-code #(do `(.setScale (bigdec (buf->str ~@%)) ~scale RoundingMode/HALF_EVEN))}))
+        precision (or precision 64)
+        return-type [:decimal precision scale (precision->bit-width precision)]]
+    {:return-type return-type
+     :continue-call (fn [f [code]]
+                      (let [str-sym (gensym 'str)
+                            dec-sym (gensym 'dec)]
+                        `(let [~str-sym (buf->str ~code)
+                               ~dec-sym (parse-decimal ~str-sym ~scale)]
+                           (if ~dec-sym
+                             ~(f return-type dec-sym)
+                             ~(f :null nil)))))}))
 
 (defmethod codegen-cast [:num :utf8] [_]
   {:return-type :utf8, :->call-code #(do `(resolve-utf8-buf (str ~@%)))})
@@ -1823,6 +1837,63 @@
 (defmethod codegen-call [:get_field :any] [_]
   {:return-type :null, :->call-code (constantly nil)})
 
+(defn traverse-nested-path
+  "Traverses a nested struct using a path list. Returns the final value or nil."
+  [struct path]
+  (when (and struct path (pos? (.size ^ListValueReader path)))
+    (let [path ^ListValueReader path]
+      (loop [current struct
+             idx 0]
+        (if (or (nil? current) (>= idx (.size path)))
+          current
+          (let [field-name (resolve-string (.readBytes (.nth path idx)))
+                next-val (when field-name
+                           (cond
+                             (instance? Map current)
+                             (get current field-name)
+
+                             (instance? ValueReader current)
+                             (let [^ValueReader vr current]
+                               (when-let [inner (.readObject vr)]
+                                 (if (instance? Map inner)
+                                   (get inner field-name)
+                                   nil)))
+
+                             :else nil))]
+            (recur next-val (inc idx))))))))
+
+(defn value->string
+  "Converts a value to string for #>> operator output."
+  [val]
+  (when val
+    (cond
+      (instance? ValueReader val)
+      (let [^ValueReader vr val
+            obj (.readObject vr)]
+        (if (instance? ByteBuffer obj)
+          (buf->str obj)
+          (str obj)))
+
+      (instance? ByteBuffer val)
+      (buf->str val)
+
+      :else (str val))))
+
+(defmethod codegen-call [:get_field :struct :list] [{[[_ field-types] _] :arg-types}]
+  {:return-type :utf8
+   :continue-call (fn [f [struct-code path-code]]
+                    (let [struct-sym (gensym 'struct)
+                          path-sym (gensym 'path)
+                          val-sym (gensym 'val)
+                          str-sym (gensym 'str)]
+                      `(let [~struct-sym ~struct-code
+                             ~path-sym ~path-code
+                             ~val-sym (traverse-nested-path ~struct-sym ~path-sym)
+                             ~str-sym (value->string ~val-sym)]
+                         (if ~str-sym
+                           ~(f :utf8 `(str->buf ~str-sym))
+                           ~(f :null nil)))))})
+
 (doseq [[op return-code] [[:== 1] [:<> -1]]]
   (defmethod codegen-call [op :struct :struct] [{[[_ l-field-types] [_ r-field-types]] :arg-types}]
     (let [fields (set (keys l-field-types))]
@@ -1909,10 +1980,18 @@
   {:return-type [:struct r-ks]
    :->call-code (fn [[l r]] r)})
 
-(defmethod codegen-cast [:list :list] [{[_ source-el-type] :source-type
+(defmethod codegen-cast [:list :list] [{[_ source-el-type :as source-type] :source-type
                                         [_ target-el-type :as target-type] :target-type}]
-  (assert (types/union? target-el-type))
-  (if (types/union? source-el-type)
+  (cond
+    (= source-el-type target-el-type)
+    {:return-type target-type
+     :->call-code (fn [[code]] code)}
+
+    (not (types/union? target-el-type))
+    {:return-type target-type
+     :->call-code (fn [[code]] code)}
+
+    (types/union? source-el-type)
     (let [target-types ^List (vec (second target-el-type))
           type-id-mapping (->> (second source-el-type)
                                (mapv (fn [source-type]
@@ -1921,6 +2000,7 @@
        :->call-code (fn [[code]]
                       `(RemappedTypeIdReader. ~code (byte-array ~type-id-mapping)))})
 
+    :else
     (let [type-id (.indexOf ^List (vec (second target-el-type)) source-el-type)]
       {:return-type target-type
        :->call-code (fn [[code]]
