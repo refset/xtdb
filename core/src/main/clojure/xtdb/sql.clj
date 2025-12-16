@@ -1265,8 +1265,8 @@
                       (list '- n 1)))))
 
   ;; PostgreSQL #>> operator: extracts nested field at path as text
-  ;; e.g., metadata #>> array['count'] -> CAST((metadata).count AS TEXT)
-  ;; e.g., metadata #>> '{count}' -> CAST((metadata).count AS TEXT)
+  ;; Always use get-field with full path to support transit types (which need the full path for traversal)
+  ;; e.g., error #>> array['tx-key', 'tx-id'] -> (cast (get-field error ['tx-key' 'tx-id']) :utf8)
   (visitPgPathAccessTextExpr [this ctx]
     (let [struct-expr (-> (.exprPrimary ctx) (.accept this))
           path-expr (-> (.path ctx) (.accept this))
@@ -1276,12 +1276,8 @@
                      (second path-expr)
                      (string? path-expr) (parse-pg-array-literal path-expr)
                      :else nil)
-          literal-string-path? (and path-vec (every? string? path-vec))
-          accessed (if literal-string-path?
-                     (reduce (fn [expr field]
-                               (list '. expr (keyword field)))
-                             struct-expr
-                             path-vec)
+          accessed (if path-vec
+                     (list 'get-field struct-expr path-vec)
                      (list 'get-field struct-expr path-expr))]
       (list 'cast accessed :utf8)))
 
