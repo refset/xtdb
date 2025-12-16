@@ -178,3 +178,29 @@
     (t/testing "Metabase-style query with parameterized path and decimal cast"
       (t/is (= [{:val 100.000000000M}]
                (xt/q tu/*node* ["SELECT (data #>> array[?]::text[])::decimal AS val FROM numeric_data" "amount"]))))))
+
+(t/deftest transit-error-column-case-expression-test
+  (t/testing "CASE expression on transit error column doesn't throw InvalidWriteObjectException"
+    (xt/execute-tx tu/*node* [[:sql "INSERT INTO foo (_id) VALUES (1)"]])
+    (try
+      (xt/execute-tx tu/*node* [[:sql "INSERT INTO bar SELECT * FROM nonexistent"]])
+      (catch Exception _))
+
+    (t/testing "simple query on error column works"
+      (t/is (seq (xt/q tu/*node* "SELECT error FROM xt.txs"))))
+
+    (t/testing "CASE expression returning error column directly (Metabase pattern)"
+      (t/is (seq (xt/q tu/*node*
+                       "SELECT CASE WHEN false
+                                    THEN NULL
+                                    ELSE error
+                               END AS error
+                        FROM xt.txs"))))
+
+    (t/testing "CASE expression with LENGTH check on error column"
+      (t/is (seq (xt/q tu/*node*
+                       "SELECT CASE WHEN 50000 < LENGTH(CAST(error AS TEXT))
+                                    THEN NULL
+                                    ELSE error
+                               END AS error
+                        FROM xt.txs"))))))
