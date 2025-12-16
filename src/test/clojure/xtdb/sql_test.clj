@@ -2635,6 +2635,28 @@ UNION ALL
             {:sysadmin false, :xt/column-2 ["claude"]}]
            (xt/q tu/*node* "SELECT sysadmin, ARRAY_AGG((SELECT name)) FROM docs GROUP BY sysadmin"))))
 
+(t/deftest test-group-by-expressions
+  (xt/submit-tx tu/*node* [[:put-docs :items
+                            {:xt/id 1 :category "foo" :val 10}
+                            {:xt/id 2 :category "FOO" :val 20}
+                            {:xt/id 3 :category "bar" :val 30}
+                            {:xt/id 4 :category "BAR" :val 40}]])
+
+  (t/testing "GROUP BY expression with only aggregates in SELECT"
+    (t/is (= [{:total 30} {:total 70}]
+             (xt/q tu/*node* "SELECT SUM(val) AS total FROM items GROUP BY UPPER(category)"))))
+
+  (t/testing "GROUP BY alias referencing expression in SELECT"
+    (t/is (= #{{:cat "FOO", :total 30} {:cat "BAR", :total 70}}
+             (set (xt/q tu/*node* "SELECT UPPER(category) AS cat, SUM(val) AS total FROM items GROUP BY cat")))))
+
+  (t/testing "GROUP BY arithmetic expression"
+    (t/is (= #{{:total 60} {:total 40}}
+             (set (xt/q tu/*node* "SELECT SUM(val) AS total FROM items GROUP BY MOD(val, 20)")))))
+
+  (t/testing "Multiple GROUP BY columns including alias expression"
+    (t/is (= 4 (count (xt/q tu/*node* "SELECT UPPER(category) AS cat, val, COUNT(*) AS cnt FROM items GROUP BY cat, val"))))))
+
 (t/deftest test-lateral-with-unnest-4009
   (xt/submit-tx tu/*node* [[:put-docs :nested-table {:xt/id 1 :nest [1 2 3]}]])
 

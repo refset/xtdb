@@ -556,6 +556,7 @@
 
   (visitGroupByClause [_ gbc]
     (let [alias-names (set (keys !alias-cols))
+          {:keys [!id-count]} env
           grouping-cols (vec (for [^ParserRuleContext grp-el (.groupingElement gbc)]
                                (.accept grp-el
                                         (reify SqlVisitor
@@ -620,8 +621,10 @@
   Object
   (toString [_] (str "GroupInvariantColsTracker[" (count !implied-gicrs) " implied cols]")))
 
-(defn- wrap-aggs [plan aggs group-invariant-cols]
-  (let [in-projs (not-empty (into [] (keep (comp :projection :in-projection)) (vals aggs)))]
+(defn- wrap-aggs [plan aggs group-invariant-cols group-expr-projs]
+  (let [agg-in-projs (not-empty (into [] (keep (comp :projection :in-projection)) (vals aggs)))
+        gb-expr-projs (not-empty (vec (for [[k v] group-expr-projs] {k v})))
+        in-projs (not-empty (into (or agg-in-projs []) gb-expr-projs))]
     (as-> plan plan
       (if in-projs
         [:map in-projs plan]
@@ -632,7 +635,7 @@
                                 {agg-sym agg-expr})))
        plan]
 
-      (if in-projs
+      (if agg-in-projs
         [:project (concat group-invariant-cols (vec (keys aggs)))
          plan]
         plan))))
@@ -2418,22 +2421,71 @@
                                            alias-name (first (keys proj-map))]]
                                  [alias-name (get !alias-cols alias-name #{})]))
 
-        group-invariant-cols (when grouped-table?
-                               (if group-by-clause
-                                 (let [{:keys [grouping-cols alias-cols]} (.accept group-by-clause group-invar-col-tracker)
-                                       ;; Expand alias references to their underlying columns
-                                       expanded-cols (mapcat (fn [col]
-                                                               (if (and (map? col) (:alias col))
-                                                                 (get alias-to-cols (:alias col) #{})
-                                                                 [col]))
-                                                             grouping-cols)
-                                       expanded-set (set expanded-cols)
-                                       missing-grouping-cols (set/difference (set !implied-gicrs) expanded-set)]
-                                   (when (seq missing-grouping-cols)
-                                     (add-err! env (->MissingGroupingColumns missing-grouping-cols)))
-                                   (vec expanded-cols))
-                                 (for [col-ref !implied-gicrs]
-                                   col-ref)))
+        ;; Build alias -> expression map for GROUP BY alias resolution
+        alias-to-expr (into {} (for [{:keys [col-sym projection]} projected-cols
+                                     :let [proj-map (if (map? projection) projection {col-sym projection})
+                                           alias-name (first (keys proj-map))
+                                           expr (get proj-map alias-name)]]
+                                 [alias-name expr]))
+
+        {:keys [!id-count]} env
+
+        {:keys [group-invariant-cols group-expr-projs alias-to-gb-sym]}
+        (when grouped-table?
+          (if group-by-clause
+            (let [{:keys [grouping-cols alias-cols]} (.accept group-by-clause group-invar-col-tracker)
+                  ;; Expand alias references and group-expr entries
+                  ;; For aliases, check if expression is simple column or complex
+                  processed-cols (mapv (fn [col]
+                                         (cond
+                                           (and (map? col) (:alias col))
+                                           (let [alias-name (:alias col)
+                                                 expr (get alias-to-expr alias-name)
+                                                 cols (get alias-to-cols alias-name #{})]
+                                             (if (symbol? expr)
+                                               ;; Simple column alias - expand to column
+                                               {:cols [expr] :expr-cols cols}
+                                               ;; Expression alias - generate GROUP BY expression
+                                               (let [gb-sym (->col-sym (str "_gb" (swap! !id-count inc)))]
+                                                 {:cols [gb-sym]
+                                                  :group-expr {gb-sym expr}
+                                                  :expr-cols cols
+                                                  :alias-gb [alias-name gb-sym]})))
+
+                                           (and (map? col) (:group-expr col))
+                                           {:cols (keys (:group-expr col))
+                                            :group-expr (:group-expr col)
+                                            :expr-cols (:expr-cols col)}
+
+                                           :else {:cols [col]}))
+                                       grouping-cols)
+                  expanded-cols (mapcat :cols processed-cols)
+                  ;; Collect columns used within GROUP BY expressions
+                  expr-cols (into #{} (mapcat :expr-cols) processed-cols)
+                  ;; Collect group expression projections
+                  group-expr-projs (into {} (keep :group-expr) processed-cols)
+                  ;; Collect alias -> synthetic column mappings
+                  alias-to-gb-sym (into {} (keep :alias-gb) processed-cols)
+                  ;; Include both the synthetic columns and the underlying columns from expressions
+                  expanded-set (set/union (set expanded-cols) expr-cols)
+                  missing-grouping-cols (set/difference (set !implied-gicrs) expanded-set)]
+              (when (seq missing-grouping-cols)
+                (add-err! env (->MissingGroupingColumns missing-grouping-cols)))
+              {:group-invariant-cols (vec expanded-cols)
+               :group-expr-projs group-expr-projs
+               :alias-to-gb-sym alias-to-gb-sym})
+            {:group-invariant-cols (vec !implied-gicrs)
+             :group-expr-projs nil
+             :alias-to-gb-sym nil}))
+
+        ;; Rewrite projected-cols to use synthetic columns for expression aliases
+        projected-cols (if (seq alias-to-gb-sym)
+                         (mapv (fn [{:keys [col-sym projection] :as proj-col}]
+                                 (if-let [gb-sym (get alias-to-gb-sym col-sym)]
+                                   (assoc proj-col :projection {col-sym gb-sym})
+                                   proj-col))
+                               projected-cols)
+                         projected-cols)
 
         ob-plan (some-> order-by-clause
                         (plan-order-by env scope
@@ -2469,7 +2521,7 @@
             agg-subqs (apply-sqs agg-subqs))
 
           (cond-> plan
-            grouped-table? (wrap-aggs aggs group-invariant-cols))
+            grouped-table? (wrap-aggs aggs group-invariant-cols group-expr-projs))
 
           (if-let [{:keys [predicate subqs]} having-plan]
             (-> plan

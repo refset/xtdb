@@ -581,7 +581,7 @@ whereClause : 'WHERE' searchCondition ;
 groupByClause : 'GROUP' 'BY' (setQuantifier)? groupingElement (',' groupingElement)* ;
 
 groupingElement
-    : columnReference # OrdinaryGroupingSet
+    : expr # GroupingExpr
     | '(' ')' # EmptyGroupingSet
     ;
 
