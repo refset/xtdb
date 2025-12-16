@@ -204,3 +204,62 @@
                                     ELSE error
                                END AS error
                         FROM xt.txs"))))))
+
+(t/deftest transit-error-column-path-access-test
+  (t/testing "Metabase #>> path access on transit error column (resolves 'get_field not applicable to types transit and list')"
+    (xt/execute-tx tu/*node* [[:sql "INSERT INTO foo (_id) VALUES (1)"]])
+    (try
+      (xt/execute-tx tu/*node* [[:sql "INSERT INTO bar SELECT * FROM nonexistent"]])
+      (catch Exception _))
+
+    (t/testing "single field extraction from error"
+      (t/is (= [{:sql-text "INSERT INTO bar SELECT * FROM nonexistent"}]
+               (xt/q tu/*node*
+                     "SELECT error#>>ARRAY['sql'] AS sql_text
+                      FROM xt.txs
+                      WHERE error IS NOT NULL"))))
+
+    (t/testing "nested path extraction (tx-key -> tx-id)"
+      (let [result (xt/q tu/*node*
+                         "SELECT error#>>ARRAY['tx-key', 'tx-id'] AS tx_id
+                          FROM xt.txs
+                          WHERE error IS NOT NULL")]
+        (t/is (seq result))
+        (t/is (string? (:tx-id (first result))))))
+
+    (t/testing "SUBSTRING on #>> result (Metabase pattern for truncating long fields)"
+      (t/is (= [{:sql-excerpt "INSERT INTO bar"}]
+               (xt/q tu/*node*
+                     "SELECT SUBSTRING((error#>>ARRAY['sql'])::text, 1, 15) AS sql_excerpt
+                      FROM xt.txs
+                      WHERE error IS NOT NULL"))))
+
+    (t/testing "decimal cast on numeric #>> result"
+      (let [result (xt/q tu/*node*
+                         "SELECT (error#>>ARRAY['tx-op-idx'])::decimal AS tx_op_idx
+                          FROM xt.txs
+                          WHERE error IS NOT NULL")]
+        (t/is (seq result))
+        (t/is (decimal? (:tx-op-idx (first result))))))
+
+    (t/testing "parameterized path access (Metabase style with $1, $2)"
+      (t/is (= [{:sql-text "INSERT INTO bar SELECT * FROM nonexistent"}]
+               (xt/q tu/*node*
+                     ["SELECT error#>>array[?]::text[] AS sql_text
+                       FROM xt.txs
+                       WHERE error IS NOT NULL"
+                      "sql"]))))
+
+    (t/testing "full Metabase-style query with multiple #>> extractions"
+      (let [result (xt/q tu/*node*
+                         "SELECT \"xt\".\"txs\".\"_id\" AS \"_id\",
+                                 SUBSTRING((\"xt\".\"txs\".\"error\"#>>ARRAY['sql'])::text, 1, 100) AS \"sql_excerpt\",
+                                 (\"xt\".\"txs\".\"error\"#>>ARRAY['tx-op-idx'])::decimal AS \"tx_op_idx\",
+                                 (\"xt\".\"txs\".\"error\"#>>ARRAY['tx-key', 'tx-id'])::decimal AS \"tx_id\"
+                          FROM \"xt\".\"txs\"
+                          WHERE \"xt\".\"txs\".\"error\" IS NOT NULL
+                          LIMIT 10")]
+        (t/is (seq result))
+        (t/is (contains? (first result) :sql-excerpt))
+        (t/is (contains? (first result) :tx-op-idx))
+        (t/is (contains? (first result) :tx-id))))))

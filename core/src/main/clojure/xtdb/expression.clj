@@ -1894,6 +1894,75 @@
                            ~(f :utf8 `(str->buf ~str-sym))
                            ~(f :null nil)))))})
 
+(defn traverse-transit-path
+  "Deserializes transit bytes and traverses using a path list. Returns the value as string or nil."
+  [transit-bytes-or-buf ^ListValueReader path]
+  (when (and transit-bytes-or-buf path (pos? (.size path)))
+    (let [read-transit (requiring-resolve 'xtdb.serde/read-transit)
+          bytes (if (bytes? transit-bytes-or-buf)
+                  transit-bytes-or-buf
+                  (buf->bytes transit-bytes-or-buf))
+          raw-data (read-transit bytes)
+          data (if (instance? Throwable raw-data)
+                 (ex-data raw-data)
+                 raw-data)]
+      (loop [current data
+             idx 0]
+        (if (or (nil? current) (>= idx (.size path)))
+          (when current (value->string current))
+          (let [field-name (resolve-string (.readBytes (.nth path idx)))
+                next-val (when (and field-name (map? current))
+                           (or (get current field-name)
+                               (get current (keyword field-name))))]
+            (recur next-val (inc idx))))))))
+
+(defn get-transit-field
+  "Deserializes transit bytes and extracts a single field. Returns the value as a string or nil."
+  [transit-bytes-or-buf field-name]
+  (when transit-bytes-or-buf
+    (let [read-transit (requiring-resolve 'xtdb.serde/read-transit)
+          bytes (if (bytes? transit-bytes-or-buf)
+                  transit-bytes-or-buf
+                  (buf->bytes transit-bytes-or-buf))
+          raw-data (read-transit bytes)
+          data (if (instance? Throwable raw-data)
+                 (ex-data raw-data)
+                 raw-data)]
+      (when (map? data)
+        (when-let [val (or (get data (str field-name))
+                           (get data (keyword field-name)))]
+          (value->string val))))))
+
+(defmethod codegen-call [:get_field :transit] [{:keys [field]}]
+  {:return-type :utf8
+   :continue-call (fn [f [transit-code]]
+                    (let [transit-sym (gensym 'transit)
+                          str-sym (gensym 'str)]
+                      `(let [~transit-sym ~transit-code
+                             ~str-sym (get-transit-field ~transit-sym '~field)]
+                         (if ~str-sym
+                           ~(f :utf8 `(str->buf ~str-sym))
+                           ~(f :null nil)))))})
+
+(defmethod codegen-call [:get_field :transit :list] [_]
+  {:return-type :utf8
+   :continue-call (fn [f [transit-code path-code]]
+                    (let [transit-sym (gensym 'transit)
+                          path-sym (gensym 'path)
+                          str-sym (gensym 'str)]
+                      `(let [~transit-sym ~transit-code
+                             ~path-sym ~path-code
+                             ~str-sym (traverse-transit-path ~transit-sym ~path-sym)]
+                         (if ~str-sym
+                           ~(f :utf8 `(str->buf ~str-sym))
+                           ~(f :null nil)))))})
+
+(defmethod codegen-call [:get_field :?] [{[[_ inner-type]] :arg-types :as expr}]
+  (codegen-call (assoc expr :arg-types [inner-type])))
+
+(defmethod codegen-call [:get_field :? :list] [{[[_ inner-type] _] :arg-types :as expr}]
+  (codegen-call (assoc expr :arg-types [inner-type [:list :utf8]])))
+
 (doseq [[op return-code] [[:== 1] [:<> -1]]]
   (defmethod codegen-call [op :struct :struct] [{[[_ l-field-types] [_ r-field-types]] :arg-types}]
     (let [fields (set (keys l-field-types))]
