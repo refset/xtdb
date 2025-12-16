@@ -42,6 +42,14 @@
    :->call-code (fn [emitted-args]
                   `(Double/compare ~@emitted-args))})
 
+(defmethod expr/codegen-call [:compare :struct :struct] [_]
+  {:return-type :i32
+   :->call-code (constantly 0)})
+
+(defmethod expr/codegen-call [:compare :transit :transit] [_]
+  {:return-type :i32
+   :->call-code (constantly 0)})
+
 ;; NOTE UUID compares according to bytes rather than Java `compare` - https://bugs.openjdk.org/browse/JDK-7025832
 (doseq [col-type #{:varbinary :fixed-size-binary :utf8 :uri :keyword :uuid}]
   (defmethod expr/codegen-call [:compare col-type col-type] [_]

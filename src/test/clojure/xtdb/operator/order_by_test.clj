@@ -67,3 +67,26 @@
                              [::tu/pages batches]]
                             {}))
             "spilling to disk"))))
+
+(t/deftest test-order-by-struct-noop
+  (t/testing "ORDER BY on struct columns is a no-op (doesn't throw)"
+    (let [data [{:a 1, :s {:x 10, :y 20}}
+                {:a 2, :s {:x 5, :y 15}}
+                {:a 3, :s {:x 30, :y 10}}]]
+      (t/is (= data
+               (tu/query-ra '[:order-by [[s]]
+                              [:table ?table]]
+                            {:args {:table data}}))
+            "struct column ORDER BY preserves original order")))
+
+  (t/testing "ORDER BY on struct with other columns"
+    (let [data [{:a 3, :s {:x 10}}
+                {:a 1, :s {:x 20}}
+                {:a 2, :s {:x 30}}]]
+      (t/is (= [{:a 1, :s {:x 20}}
+                {:a 2, :s {:x 30}}
+                {:a 3, :s {:x 10}}]
+               (tu/query-ra '[:order-by [[a] [s]]
+                              [:table ?table]]
+                            {:args {:table data}}))
+            "sorts by non-struct column, struct is no-op"))))
