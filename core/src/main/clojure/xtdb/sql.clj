@@ -550,22 +550,60 @@
   PlanError
   (error-string [_] (format "Missing grouping columns: %s" missing-grouping-cols)))
 
-(defrecord GroupInvariantColsTracker [env scope, ^Set !implied-gicrs ^Set !unresolved-cr]
+(defrecord GroupInvariantColsTracker [env scope, ^Set !implied-gicrs ^Set !unresolved-cr ^Map !alias-cols !current-alias]
   SqlVisitor
   (visitSelectClause [this ctx] (.accept (.getParent ctx) this))
 
   (visitGroupByClause [_ gbc]
-    (let [grouping-cols (vec (for [^ParserRuleContext grp-el (.groupingElement gbc)]
+    (let [alias-names (set (keys !alias-cols))
+          grouping-cols (vec (for [^ParserRuleContext grp-el (.groupingElement gbc)]
                                (.accept grp-el
                                         (reify SqlVisitor
-                                          (visitOrdinaryGroupingSet [_ ctx]
-                                            (.accept (.columnReference ctx)
-                                                     (map->ExprPlanVisitor {:env env :scope scope
-                                                                            :!unresolved-cr !unresolved-cr})))))))]
+                                          (visitGroupingExpr [_ ctx]
+                                            (let [expr-ctx (.expr ctx)
+                                                  ;; Try to extract a simple identifier from column reference
+                                                  ;; to properly handle quoted identifiers like "error_msg"
+                                                  ;; Only ColumnExprContext has .columnReference method
+                                                  simple-ident (try
+                                                                 (when-let [col-ref (.columnReference expr-ctx)]
+                                                                   (let [id-chain (.identifier (.identifierChain col-ref))]
+                                                                     (when (= 1 (count id-chain))
+                                                                       (identifier-sym (first id-chain)))))
+                                                                 (catch IllegalArgumentException _ nil))
+                                                  ;; Fall back to raw text, normalizing quoted identifiers
+                                                  expr-text-raw (.getText expr-ctx)
+                                                  expr-text (or simple-ident
+                                                                ;; Handle quoted identifiers - strip surrounding double quotes
+                                                                (if (and (str/starts-with? expr-text-raw "\"")
+                                                                         (str/ends-with? expr-text-raw "\""))
+                                                                  (symbol (subs expr-text-raw 1 (dec (count expr-text-raw))))
+                                                                  ;; Unquoted - convert to lowercase (SQL standard)
+                                                                  (symbol (util/str->normal-form-str expr-text-raw))))]
+                                              ;; Check for alias reference first
+                                              (if (contains? alias-names expr-text)
+                                                {:alias expr-text}
+                                                ;; Not an alias - parse as expression
+                                                (let [!expr-cols (HashSet.)
+                                                      tracking-scope (reify Scope
+                                                                       (available-cols [_] (available-cols scope))
+                                                                       (-find-cols [_ chain excl-cols]
+                                                                         (let [cols (-find-cols scope chain excl-cols)]
+                                                                           (doseq [col cols]
+                                                                             (.add !expr-cols col))
+                                                                           cols)))
+                                                      expr (.accept expr-ctx
+                                                                    (map->ExprPlanVisitor {:env env :scope tracking-scope
+                                                                                           :!unresolved-cr !unresolved-cr}))]
+                                                  (cond
+                                                    (symbol? expr)
+                                                    expr
 
-      (if-let [missing-grouping-cols (not-empty (set/difference (set !implied-gicrs) (set grouping-cols)))]
-        (add-err! env (->MissingGroupingColumns missing-grouping-cols))
-        grouping-cols)))
+                                                    :else
+                                                    (let [gb-sym (->col-sym (str "_gb" (swap! !id-count inc)))]
+                                                      {:group-expr {gb-sym expr}
+                                                       :expr-cols (set !expr-cols)}))))))))))]
+      {:grouping-cols grouping-cols
+       :alias-cols !alias-cols}))
 
   Scope
   (available-cols [_] (available-cols scope))
@@ -574,7 +612,13 @@
     (for [sym (-find-cols scope chain excl-cols)]
       (do
         (some-> !implied-gicrs (.add sym))
-        sym))))
+        (when-let [alias @!current-alias]
+          (let [cols (or (.get !alias-cols alias) #{})]
+            (.put !alias-cols alias (conj cols sym))))
+        sym)))
+
+  Object
+  (toString [_] (str "GroupInvariantColsTracker[" (count !implied-gicrs) " implied cols]")))
 
 (defn- wrap-aggs [plan aggs group-invariant-cols]
   (let [in-projs (not-empty (into [] (keep (comp :projection :in-projection)) (vals aggs)))]
@@ -784,14 +828,21 @@
                                                            (.accept (.getChild sl-elem 0)
                                                                     (reify SqlVisitor
                                                                       (visitDerivedColumn [_ ctx]
-                                                                        (let [expr-ctx (.expr ctx)]
-                                                                          [(let [expr (.accept expr-ctx
-                                                                                               (map->ExprPlanVisitor {:env env, :scope scope, :!subqs !subqs, :!aggs !aggs :!agg-subqs !agg-subqs :!windows !windows}))]
-                                                                             (if-let [as-clause (.asClause ctx)]
-                                                                               (let [col-name (->col-sym (identifier-sym as-clause))]
-                                                                                 (->ProjectedCol {col-name expr} col-name))
-
-                                                                               (->projected-col-expr col-idx expr)))]))
+                                                                        (let [expr-ctx (.expr ctx)
+                                                                              as-clause (.asClause ctx)
+                                                                              col-name (when as-clause
+                                                                                         (->col-sym (identifier-sym as-clause)))]
+                                                                          ;; Set current alias context for column tracking
+                                                                          (when (and col-name (instance? GroupInvariantColsTracker scope))
+                                                                            (reset! (.-!current-alias ^GroupInvariantColsTracker scope) col-name))
+                                                                          (let [expr (.accept expr-ctx
+                                                                                              (map->ExprPlanVisitor {:env env, :scope scope, :!subqs !subqs, :!aggs !aggs :!agg-subqs !agg-subqs :!windows !windows}))]
+                                                                            ;; Clear alias context
+                                                                            (when (instance? GroupInvariantColsTracker scope)
+                                                                              (reset! (.-!current-alias ^GroupInvariantColsTracker scope) nil))
+                                                                            [(if col-name
+                                                                               (->ProjectedCol {col-name expr} col-name)
+                                                                               (->projected-col-expr col-idx expr))])))
 
                                                                       (visitQualifiedAsterisk [_ ctx]
                                                                         (let [[table-name schema-name] (rseq (mapv identifier-sym (.identifier (.identifierChain ctx))))]
@@ -2346,7 +2397,8 @@
                         order-by-clause]
   (let [!unresolved-cr (HashSet.)
         !implied-gicrs (HashSet.)
-        group-invar-col-tracker (->GroupInvariantColsTracker env scope !implied-gicrs !unresolved-cr)
+        !alias-cols (HashMap.)
+        group-invar-col-tracker (->GroupInvariantColsTracker env scope !implied-gicrs !unresolved-cr !alias-cols (atom nil))
 
         having-plan (when having-clause
                       (let [!subqs (HashMap.)
@@ -2356,13 +2408,30 @@
                          :subqs (not-empty (into {} !subqs))
                          :aggs (not-empty (into {} !aggs))}))
 
-
         {:keys [projected-cols windows agg-subqs] :as select-plan} (.accept select-clause (->SelectClauseProjectedCols env group-invar-col-tracker))
         aggs (not-empty (merge (:aggs select-plan) (:aggs having-plan)))
         grouped-table? (boolean (or aggs group-by-clause))
+
+        ;; Build alias -> cols map from projected-cols for GROUP BY alias resolution
+        alias-to-cols (into {} (for [{:keys [col-sym projection]} projected-cols
+                                     :let [proj-map (if (map? projection) projection {col-sym projection})
+                                           alias-name (first (keys proj-map))]]
+                                 [alias-name (get !alias-cols alias-name #{})]))
+
         group-invariant-cols (when grouped-table?
                                (if group-by-clause
-                                 (.accept group-by-clause group-invar-col-tracker)
+                                 (let [{:keys [grouping-cols alias-cols]} (.accept group-by-clause group-invar-col-tracker)
+                                       ;; Expand alias references to their underlying columns
+                                       expanded-cols (mapcat (fn [col]
+                                                               (if (and (map? col) (:alias col))
+                                                                 (get alias-to-cols (:alias col) #{})
+                                                                 [col]))
+                                                             grouping-cols)
+                                       expanded-set (set expanded-cols)
+                                       missing-grouping-cols (set/difference (set !implied-gicrs) expanded-set)]
+                                   (when (seq missing-grouping-cols)
+                                     (add-err! env (->MissingGroupingColumns missing-grouping-cols)))
+                                   (vec expanded-cols))
                                  (for [col-ref !implied-gicrs]
                                    col-ref)))
 

@@ -263,3 +263,37 @@
         (t/is (contains? (first result) :sql-excerpt))
         (t/is (contains? (first result) :tx-op-idx))
         (t/is (contains? (first result) :tx-id))))))
+
+(t/deftest group-by-select-alias-test
+  (t/testing "GROUP BY can reference SELECT alias (PostgreSQL compatibility for Metabase)"
+    (xt/execute-tx tu/*node* [[:sql "INSERT INTO test_data (_id, val) VALUES (1, 100), (2, 100), (3, 200)"]])
+
+    (t/testing "simple column alias"
+      (t/is (= [{:x 100} {:x 200}]
+               (xt/q tu/*node* "SELECT val AS x FROM test_data GROUP BY x ORDER BY x"))))
+
+    (t/testing "expression alias"
+      (t/is (= [{:x 101} {:x 201}]
+               (xt/q tu/*node* "SELECT val + 1 AS x FROM test_data GROUP BY x ORDER BY x"))))
+
+    (t/testing "cast expression alias"
+      (t/is (= [{:val-text "100"} {:val-text "200"}]
+               (xt/q tu/*node* "SELECT CAST(val AS TEXT) AS val_text FROM test_data GROUP BY val_text ORDER BY val_text"))))
+
+    (t/testing "alias with aggregation"
+      (t/is (= [{:x 100, :cnt 2} {:x 200, :cnt 1}]
+               (xt/q tu/*node* "SELECT val AS x, COUNT(*) AS cnt FROM test_data GROUP BY x ORDER BY x")))))
+
+  (t/testing "Metabase-style query with GROUP BY alias on xt.txs"
+    (xt/execute-tx tu/*node* [[:sql "INSERT INTO foo (_id) VALUES (1)"]])
+    (try
+      (xt/execute-tx tu/*node* [[:sql "INSERT INTO bar SELECT * FROM nonexistent"]])
+      (catch Exception _))
+
+    (t/testing "query executes without 'Missing grouping columns' error"
+      (t/is (seq (xt/q tu/*node*
+                       "SELECT (\"xt\".\"txs\".\"error\"#>> ARRAY['message'])::text AS \"error_msg\"
+                        FROM \"xt\".\"txs\"
+                        GROUP BY \"error_msg\"
+                        ORDER BY \"error_msg\" ASC
+                        LIMIT 1000"))))))
