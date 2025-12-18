@@ -478,6 +478,7 @@ dateTruncPrecision
     | 'YEAR' | 'QUARTER' | 'MONTH' | 'WEEK' | 'DAY'
     | 'HOUR' | 'MINUTE' | 'SECOND'
     | 'MILLISECOND' | 'MICROSECOND' | 'NANOSECOND'
+    | characterString
     ;
 
 /// §6.34 <interval value function>
