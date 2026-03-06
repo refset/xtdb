@@ -1,10 +1,18 @@
 #pragma once
 
 #include "types.h"
+
+#include <nlohmann/json.hpp>
+#include <set>
 #include <string>
 
-// Load catalog JSON (written by the Clojure catalog generator),
-// read Arrow IPC trie files directly from the XTDB object store,
-// resolve bitemporality via polygon calculation,
-// and build in-memory query structures.
-FusionData load_from_catalog(const std::string& catalog_path, QueryParams& params);
+struct CatalogInfo {
+    nlohmann::json tables;
+    QueryParams params;
+};
+
+CatalogInfo parse_catalog(const std::string& catalog_path);
+
+// Load only the specified tables from trie files.
+// Tables not in `needed` are left empty in the returned FusionData.
+FusionData load_tables(const CatalogInfo& cat, const std::set<std::string>& needed);

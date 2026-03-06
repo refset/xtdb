@@ -5,6 +5,7 @@
             [xtdb.api :as xt]
             [xtdb.bench :as b]
             [xtdb.bench.fusion :as fusion]
+            [xtdb.compactor :as compactor]
             [xtdb.db-catalog :as db]
             [xtdb.test-util :as tu]
             [xtdb.trie-catalog :as cat]
@@ -292,6 +293,16 @@
                                                 :staged-only? true})
               benchmark-fn (b/compile-benchmark benchmark)]
           (benchmark-fn node)
+
+          (log/info "Running compaction...")
+          (compactor/compact-all! node nil)
+          (log/info "Compaction complete")
+
+          (doseq [tn table-names]
+            (let [table (TableRef. "xtdb" "public" tn)
+                  tc (.getTrieCatalog (db/primary-db node))
+                  live (cat/current-tries (cat/trie-state tc table))]
+              (log/infof "  %s: %d files" tn (count live))))
 
           (let [latest-completed-tx (-> (xt/status node) (get-in [:latest-completed-txs "xtdb" 0]))
                 max-vt (-> (xt/q node "SELECT max(_valid_from) AS m FROM readings FOR ALL VALID_TIME") first :m)

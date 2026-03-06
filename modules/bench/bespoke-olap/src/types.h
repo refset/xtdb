@@ -1,5 +1,7 @@
 #pragma once
 
+#include "arrow_access.h"
+
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -45,21 +47,10 @@ struct System {
     std::vector<Timestamp> valid_to;
     std::vector<std::string> site_id;
     std::vector<Timestamp> created_at;
-    std::vector<int64_t> type;
-    std::vector<double> updated_time;
 
-    std::vector<double> rtg_max_w, rtg_max_wh, rtg_max_va, rtg_max_var, rtg_max_var_neg;
-    std::vector<double> rtg_max_a, rtg_max_v, rtg_min_v, rtg_v_nom;
-    std::vector<double> rtg_max_charge_rate_w, rtg_max_charge_rate_va;
-    std::vector<double> rtg_max_discharge_rate_w, rtg_max_discharge_rate_va;
-    std::vector<double> rtg_min_pf_over_excited, rtg_min_pf_under_excited;
-
-    std::vector<double> set_max_w, set_max_wh, set_max_va, set_max_var, set_max_var_neg;
-    std::vector<double> set_max_charge_rate_w, set_max_discharge_rate_w, set_grad_w;
-
-    std::vector<std::string> modes_enabled, modes_supported;
-    std::vector<std::string> feature_a_modes_enabled, feature_a_modes_supported;
-    std::vector<std::string> feature_b_modes_enabled, feature_b_modes_supported;
+    // Zero-copy: other columns accessed from Arrow on demand
+    std::vector<FileRef> files;
+    std::vector<RowSource> sources;
 };
 
 struct Device {
@@ -73,12 +64,9 @@ struct Device {
 
 struct Readings {
     std::unordered_map<std::string, std::pair<int32_t, int32_t>> system_id_range;
-    std::vector<std::string> id;
-    std::vector<std::string> system_id;
     std::vector<Timestamp> valid_from;
     std::vector<Timestamp> valid_to;
     std::vector<double> value;
-    std::vector<int64_t> duration;
 };
 
 struct TestSuite {

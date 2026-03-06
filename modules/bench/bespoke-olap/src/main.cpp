@@ -1,31 +1,14 @@
 #include "loader.h"
 #include "queries.h"
 
+#include <algorithm>
 #include <chrono>
+#include <functional>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <set>
 
 using json = nlohmann::json;
-
-struct QueryResult {
-    std::string name;
-    json results;
-    int64_t latency_us;
-    int64_t row_count;
-};
-
-template<typename Fn>
-static QueryResult run_query(const std::string& name, Fn fn) {
-    auto start = std::chrono::high_resolution_clock::now();
-    json results = fn();
-    auto end = std::chrono::high_resolution_clock::now();
-    auto us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-
-    int64_t rows = results.is_array() ? static_cast<int64_t>(results.size()) : 0;
-    std::cerr << "  " << name << ": " << rows << " rows in " << us << " us\n";
-
-    return {name, std::move(results), us, rows};
-}
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -33,51 +16,57 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::string catalog_path = argv[1];
-    QueryParams params;
+    auto cat = parse_catalog(argv[1]);
+    std::cerr << "Params: system_id=" << cat.params.sample_system_id
+              << " min_vt=" << cat.params.min_valid_time
+              << " max_vt=" << cat.params.max_valid_time << "\n";
 
-    std::cerr << "Loading data from catalog: " << catalog_path << "\n";
-    auto load_start = std::chrono::high_resolution_clock::now();
-    FusionData data = load_from_catalog(catalog_path, params);
-    auto load_end = std::chrono::high_resolution_clock::now();
-    auto load_us = std::chrono::duration_cast<std::chrono::microseconds>(load_end - load_start).count();
-    std::cerr << "Data loaded in " << load_us << " us\n";
-    std::cerr << "Params: system_id=" << params.sample_system_id
-              << " min_vt=" << params.min_valid_time
-              << " max_vt=" << params.max_valid_time << "\n";
+    struct QueryDef {
+        std::string name;
+        std::set<std::string> tables;
+        std::function<json(const FusionData&, const QueryParams&)> fn;
+    };
+    std::vector<QueryDef> queries = {
+        {"system-settings", {"system"}, query_system_settings},
+        {"readings-for-system", {"system", "readings"}, query_readings_for_system},
+        {"system-count-over-time", {"system"}, query_system_count_over_time},
+        {"readings-range-bins", {"readings"}, query_readings_range_bins},
+        {"cumulative-registration", {"system", "site", "device", "test_suite_run", "test_suite", "test_case", "test_case_run"}, query_cumulative_registration}
+    };
 
-    std::cerr << "Running queries...\n";
-    std::vector<QueryResult> results;
+    auto median_of = [](std::vector<int64_t>& v) -> int64_t {
+        std::sort(v.begin(), v.end());
+        return v[v.size() / 2];
+    };
 
-    results.push_back(run_query("system-settings",
-        [&]() { return query_system_settings(data, params); }));
-
-    results.push_back(run_query("readings-for-system",
-        [&]() { return query_readings_for_system(data, params); }));
-
-    results.push_back(run_query("system-count-over-time",
-        [&]() { return query_system_count_over_time(data, params); }));
-
-    results.push_back(run_query("readings-range-bins",
-        [&]() { return query_readings_range_bins(data, params); }));
-
-    results.push_back(run_query("cumulative-registration",
-        [&]() { return query_cumulative_registration(data, params); }));
-
-    // Output JSON to stdout
+    std::cerr << "Running queries (3 iterations each, load+compute, reporting median)...\n";
     json output;
-    output["load_us"] = load_us;
-    json queries = json::array();
-    for (auto& r : results) {
-        queries.push_back({
-            {"query", r.name},
-            {"latency_us", r.latency_us},
-            {"row_count", r.row_count},
-            {"results", r.results}
+    json query_arr = json::array();
+
+    for (auto& qd : queries) {
+        std::vector<int64_t> timings;
+        json last_results;
+        int64_t last_rows = 0;
+        for (int iter = 0; iter < 3; iter++) {
+            auto start = std::chrono::high_resolution_clock::now();
+            auto data = load_tables(cat, qd.tables);
+            last_results = qd.fn(data, cat.params);
+            auto end = std::chrono::high_resolution_clock::now();
+            timings.push_back(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+            last_rows = last_results.is_array() ? static_cast<int64_t>(last_results.size()) : 0;
+        }
+        auto med = median_of(timings);
+        std::cerr << "  " << qd.name << ": " << last_rows << " rows, median " << med << " us"
+                  << " [" << timings[0] << ", " << timings[1] << ", " << timings[2] << "]\n";
+        query_arr.push_back({
+            {"query", qd.name},
+            {"latency_us", med},
+            {"row_count", last_rows},
+            {"results", last_results}
         });
     }
-    output["queries"] = queries;
 
+    output["queries"] = query_arr;
     std::cout << output.dump() << std::endl;
     return 0;
 }

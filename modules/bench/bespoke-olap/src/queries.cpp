@@ -28,33 +28,38 @@ json query_system_settings(const FusionData& data, const QueryParams& params) {
     row["_valid_to"] = data.system.valid_to[idx];
     row["site_id"] = data.system.site_id[idx];
     row["created_at"] = data.system.created_at[idx];
-    row["type"] = data.system.type[idx];
-    row["updated_time"] = data.system.updated_time[idx];
-    row["rtg_max_w"] = data.system.rtg_max_w[idx];
-    row["rtg_max_wh"] = data.system.rtg_max_wh[idx];
-    row["rtg_max_va"] = data.system.rtg_max_va[idx];
-    row["rtg_max_var"] = data.system.rtg_max_var[idx];
-    row["rtg_max_var_neg"] = data.system.rtg_max_var_neg[idx];
-    row["rtg_max_a"] = data.system.rtg_max_a[idx];
-    row["rtg_max_v"] = data.system.rtg_max_v[idx];
-    row["rtg_min_v"] = data.system.rtg_min_v[idx];
-    row["rtg_v_nom"] = data.system.rtg_v_nom[idx];
-    row["rtg_max_charge_rate_w"] = data.system.rtg_max_charge_rate_w[idx];
-    row["rtg_max_charge_rate_va"] = data.system.rtg_max_charge_rate_va[idx];
-    row["rtg_max_discharge_rate_w"] = data.system.rtg_max_discharge_rate_w[idx];
-    row["rtg_max_discharge_rate_va"] = data.system.rtg_max_discharge_rate_va[idx];
-    row["rtg_min_pf_over_excited"] = data.system.rtg_min_pf_over_excited[idx];
-    row["rtg_min_pf_under_excited"] = data.system.rtg_min_pf_under_excited[idx];
-    row["set_max_w"] = data.system.set_max_w[idx];
-    row["set_max_wh"] = data.system.set_max_wh[idx];
-    row["set_max_va"] = data.system.set_max_va[idx];
-    row["set_max_var"] = data.system.set_max_var[idx];
-    row["set_max_var_neg"] = data.system.set_max_var_neg[idx];
-    row["set_max_charge_rate_w"] = data.system.set_max_charge_rate_w[idx];
-    row["set_max_discharge_rate_w"] = data.system.set_max_discharge_rate_w[idx];
-    row["set_grad_w"] = data.system.set_grad_w[idx];
-    row["modes_enabled"] = data.system.modes_enabled[idx];
-    row["modes_supported"] = data.system.modes_supported[idx];
+
+    // Zero-copy: access remaining columns from Arrow on demand
+    auto& src = data.system.sources[idx];
+    CachedBatch cb;
+    cb.ensure(data.system.files, src.file, src.batch);
+    row["type"] = cb.i64("type", src.row);
+    row["updated_time"] = cb.f64("updated_time", src.row);
+    row["rtg_max_w"] = cb.f64("rtg_max_w", src.row);
+    row["rtg_max_wh"] = cb.f64("rtg_max_wh", src.row);
+    row["rtg_max_va"] = cb.f64("rtg_max_va", src.row);
+    row["rtg_max_var"] = cb.f64("rtg_max_var", src.row);
+    row["rtg_max_var_neg"] = cb.f64("rtg_max_var_neg", src.row);
+    row["rtg_max_a"] = cb.f64("rtg_max_a", src.row);
+    row["rtg_max_v"] = cb.f64("rtg_max_v", src.row);
+    row["rtg_min_v"] = cb.f64("rtg_min_v", src.row);
+    row["rtg_v_nom"] = cb.f64("rtg_v_nom", src.row);
+    row["rtg_max_charge_rate_w"] = cb.f64("rtg_max_charge_rate_w", src.row);
+    row["rtg_max_charge_rate_va"] = cb.f64("rtg_max_charge_rate_va", src.row);
+    row["rtg_max_discharge_rate_w"] = cb.f64("rtg_max_discharge_rate_w", src.row);
+    row["rtg_max_discharge_rate_va"] = cb.f64("rtg_max_discharge_rate_va", src.row);
+    row["rtg_min_pf_over_excited"] = cb.f64("rtg_min_pf_over_excited", src.row);
+    row["rtg_min_pf_under_excited"] = cb.f64("rtg_min_pf_under_excited", src.row);
+    row["set_max_w"] = cb.f64("set_max_w", src.row);
+    row["set_max_wh"] = cb.f64("set_max_wh", src.row);
+    row["set_max_va"] = cb.f64("set_max_va", src.row);
+    row["set_max_var"] = cb.f64("set_max_var", src.row);
+    row["set_max_var_neg"] = cb.f64("set_max_var_neg", src.row);
+    row["set_max_charge_rate_w"] = cb.f64("set_max_charge_rate_w", src.row);
+    row["set_max_discharge_rate_w"] = cb.f64("set_max_discharge_rate_w", src.row);
+    row["set_grad_w"] = cb.f64("set_grad_w", src.row);
+    row["modes_enabled"] = cb.str("modes_enabled", src.row);
+    row["modes_supported"] = cb.str("modes_supported", src.row);
 
     return json::array({row});
 }
@@ -158,8 +163,17 @@ json query_readings_range_bins(const FusionData& data, const QueryParams& params
     int64_t query_start = params.min_valid_time;
     int64_t query_end = params.max_valid_time;
 
-    // Use an ordered map: bin_start → (sum_portion, sum_weight)
-    std::map<int64_t, std::pair<double, double>> bins;
+    // Pre-compute bin range for flat array indexing instead of std::map
+    int64_t first_bin = date_bin_hour(query_start);
+    // Readings can extend beyond query_end, so use a generous upper bound
+    int64_t last_possible_vt = query_end + HOUR_US * 24; // padding
+    int64_t last_bin = date_bin_hour(last_possible_vt);
+    int64_t n_bins = (last_bin - first_bin) / HOUR_US + 1;
+
+    // Flat array: [sum_portion, sum_weight] per bin
+    std::vector<std::pair<double, double>> bins(n_bins, {0.0, 0.0});
+    // Track which bins are actually populated
+    int64_t actual_min_bin = n_bins, actual_max_bin = -1;
 
     for (int32_t i = 0; i < static_cast<int32_t>(rdg.valid_from.size()); i++) {
         int64_t vf = rdg.valid_from[i];
@@ -167,9 +181,7 @@ json query_readings_range_bins(const FusionData& data, const QueryParams& params
         double val = rdg.value[i];
 
         if (vf >= query_end || vt <= query_start) continue;
-        if (vf >= query_end) continue;
 
-        // range_bins: split [vf, vt) into hourly bins
         int64_t reading_duration = vt - vf;
         if (reading_duration <= 0) continue;
 
@@ -181,19 +193,25 @@ json query_readings_range_bins(const FusionData& data, const QueryParams& params
             if (overlap_start < overlap_end) {
                 double weight = static_cast<double>(overlap_end - overlap_start)
                               / static_cast<double>(reading_duration);
-                double portion = val * weight;
-                auto& b = bins[bin_start];
-                b.first += portion;
-                b.second += weight;
+                int64_t idx = (bin_start - first_bin) / HOUR_US;
+                if (idx >= 0 && idx < n_bins) {
+                    bins[idx].first += val * weight;
+                    bins[idx].second += weight;
+                    actual_min_bin = std::min(actual_min_bin, idx);
+                    actual_max_bin = std::max(actual_max_bin, idx);
+                }
             }
             bin_start += HOUR_US;
         }
     }
 
     json arr = json::array();
-    for (auto& [t, pw] : bins) {
-        double value = (pw.second > 0.0) ? pw.first / pw.second : 0.0;
-        arr.push_back({{"t", t}, {"value", value}});
+    for (int64_t i = actual_min_bin; i <= actual_max_bin; i++) {
+        if (bins[i].second > 0.0) {
+            int64_t t = first_bin + i * HOUR_US;
+            double value = bins[i].first / bins[i].second;
+            arr.push_back({{"t", t}, {"value", value}});
+        }
     }
     return arr;
 }

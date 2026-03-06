@@ -1,6 +1,7 @@
 (ns xtdb.compactor.job-calculator
   (:require [xtdb.trie-catalog :as cat])
   (:import com.carrotsearch.hppc.ByteArrayList
+           java.time.LocalDate
            (xtdb.compactor Compactor$Job Compactor$JobCalculator)
            (xtdb.trie Trie$Key)))
 
@@ -85,11 +86,31 @@
            false ; partitioned-by-recency?
            )))
 
+(def ^:private cross-recency-sentinel (LocalDate/of 9999 12 31))
+
+(defn- cross-recency-compaction-jobs [table table-tries {:keys [^long file-size-target]}]
+  (let [all-hist (for [[[level recency _part] {tries :live}] table-tries
+                       :when (and recency (#{1 2} level))
+                       t tries]
+                   t)
+        total-size (transduce (map :data-file-size) + 0 all-hist)
+        recencies (into #{} (keep :recency) all-hist)]
+    (when (and (>= (count recencies) 2)
+               (< total-size file-size-target)
+               (>= (count all-hist) 2))
+      (let [max-block-idx (transduce (map :block-idx) max Long/MIN_VALUE all-hist)]
+        [(->Job table (mapv :trie-key all-hist) (byte-array 0)
+                (Trie$Key. 2 cross-recency-sentinel nil max-block-idx)
+                false)]))))
+
 (defn compaction-jobs [table {table-tries :tries} opts]
-  (concat (when-let [job (l0->l1-compaction-job table table-tries opts)]
-            [job])
-          (l2h-compaction-jobs table table-tries opts)
-          (tiering-compaction-jobs table table-tries opts)))
+  (let [l2h-jobs (l2h-compaction-jobs table table-tries opts)]
+    (concat (when-let [job (l0->l1-compaction-job table table-tries opts)]
+              [job])
+            (if (seq l2h-jobs)
+              l2h-jobs
+              (cross-recency-compaction-jobs table table-tries opts))
+            (tiering-compaction-jobs table table-tries opts))))
 
 (defrecord JobCalculator []
   Compactor$JobCalculator

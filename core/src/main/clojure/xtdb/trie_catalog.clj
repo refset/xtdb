@@ -102,6 +102,9 @@
 ;; The impact of this is that historical files are 'one level behind' current files, in terms of IID sharding
 ;; e.g. L4C files are sharded by three IID parts; L4H are sharded by recency and two IID parts.
 
+(def ^:private cross-recency-sentinel (LocalDate/of 9999 12 31))
+(defn- cross-recency? [recency] (= recency cross-recency-sentinel))
+
 (set! *unchecked-math* :warn-on-boxed)
 
 (defprotocol PTrieCatalog
@@ -150,7 +153,6 @@
     (-> tries
         (assoc :live (reduce disj live new-garbage))
         (assoc :garbage (into garbage new-garbage)))))
-
 
 (defn- conj-trie [tries {block-idx :block-idx :as trie} state]
   (let [trie (assoc trie :state state)
@@ -249,12 +251,18 @@
       (-> table-cat
           (update :tries
                   (fn [tries]
-                    (-> tries
-                        ;; L2H files are levelled, so this supersedes any previous partial files
-                        (update [2 recency part] insert-levelled-trie trie opts)
-
-                        ;; we supersede any L1H files that we've incorporated into this L2H
-                        (update [1 recency []] supersede-by-block-idx block-idx opts)))))
+                    (if (cross-recency? recency)
+                      (reduce (fn [tries [[l r _p :as shard] _]]
+                                (if (or (and (= l 1) r)
+                                        (and (= l 2) r (not= r recency)))
+                                  (update tries shard supersede-by-block-idx block-idx opts)
+                                  tries))
+                              (-> tries
+                                  (update [2 recency part] insert-levelled-trie trie opts))
+                              tries)
+                      (-> tries
+                          (update [2 recency part] insert-levelled-trie trie opts)
+                          (update [1 recency []] supersede-by-block-idx block-idx opts))))))
 
       (-> table-cat
           (update-in [:tries [level recency part]] conj-trie trie :nascent)
@@ -482,8 +490,8 @@
          partitions
          (mapv (fn [partition]
                  (table-cat/->partition
-                   (update partition :tries
-                           (partial mapv #(trie/->trie-details table %))))))))
+                  (update partition :tries
+                          (partial mapv #(trie/->trie-details table %))))))))
 
   (refresh [_ block-idx]
     (when-not (= block-idx (:block-idx @!state))
