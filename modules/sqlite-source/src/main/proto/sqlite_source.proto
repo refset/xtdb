@@ -1,0 +1,18 @@
+edition = "2023";
+
+package xtdb.sqlite.proto;
+
+option java_multiple_files = true;
+
+message SqliteSourceConfig {
+    string remote = 1;
+    string cdc_table = 2;
+    repeated string table_include_list = 3;
+}
+
+message SqliteSourceToken {
+    // Monotonic sequence from the CDC log's AUTOINCREMENT PK.
+    // On resume we stream rows with seq > latest_seq.
+    int64 latest_seq = 1;
+    bool snapshot_completed = 2;
+}
